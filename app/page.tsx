@@ -781,7 +781,7 @@ export default function HomePage() {
                 )}
               >
                 <Upload size={14} />
-                <span>{selectedFile ? "Change" : "Upload file"}</span>
+                <span>{selectedFile ? "Change" : "Upload"}</span>
                 <input type="file" className="hidden" onChange={onFile} accept=".csv,.txt,.tsv,.xls,.xlsx,.pdf" />
               </label>
 
@@ -869,8 +869,8 @@ export default function HomePage() {
                     ? "bg-white/10 text-zinc-200 border border-white/10"
                     : "bg-zinc-100 text-zinc-800"
                 )}
-                title="Upload file"
-                aria-label="Upload file"
+                title="Upload"
+                aria-label="Upload"
               >
                 <Upload size={20} />
                 <input type="file" className="hidden" onChange={onFile} accept=".csv,.txt,.tsv,.xls,.xlsx,.pdf" />
