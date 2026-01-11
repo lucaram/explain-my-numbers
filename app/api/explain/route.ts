@@ -1,6 +1,8 @@
 // src/app/api/explain/route.ts
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
+import { Redis } from "@upstash/redis";
+import { Ratelimit } from "@upstash/ratelimit";
 
 /**
  * MODE A (schema-free, comprehensive):
@@ -46,12 +48,7 @@ const EXCEL_PARSE_TIMEOUT_MS = 2_000;
 /** PDF limit (optional) */
 const MAX_PDF_BYTES = 3 * 1024 * 1024; // 3MB
 
-/** Basic abuse guard (best-effort; you’ll swap to Upstash later) */
-const RL_WINDOW_MS = 60_000;
-const RL_MAX_REQ = 30;
-const rateState: Map<string, { ts: number; n: number }> =
-  (globalThis as any).__emn_rl ?? new Map();
-(globalThis as any).__emn_rl = rateState;
+
 
 /** --------------------------
  * Utilities
@@ -1734,23 +1731,31 @@ async function extractInput(req: Request): Promise<Extracted> {
 function getClientIp(req: Request) {
   const xf = req.headers.get("x-forwarded-for");
   if (xf) return xf.split(",")[0].trim();
+
   const xr = req.headers.get("x-real-ip");
   if (xr) return xr.trim();
-  return "unknown";
+
+  // ✅ Local dev: Next dev server won't set forwarded headers
+  // so without this everything becomes "unknown" and shares one bucket.
+  return req.headers.get("cf-connecting-ip")?.trim()
+  || req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim()
+  || "127.0.0.1";
+
 }
 
-function applyRateLimit(ip: string) {
-  const now = Date.now();
-  const v = rateState.get(ip);
-  if (!v || now - v.ts > RL_WINDOW_MS) {
-    rateState.set(ip, { ts: now, n: 1 });
-    return { ok: true };
-  }
-  if (v.n >= RL_MAX_REQ) return { ok: false };
-  v.n++;
-  rateState.set(ip, v);
-  return { ok: true };
+
+async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
+  const res = await ratelimit.limit(identifier);
+
+  if (res.success) return { ok: true };
+
+  // Optional: tell client when to retry (nice UX)
+  const retryAfterSec = Math.max(1, Math.ceil((res.reset - Date.now()) / 1000));
+
+  return { ok: false, retryAfterSec };
 }
+
+
 
 /** --------------------------
  * Prompt packer (schema-free)
@@ -1800,13 +1805,44 @@ export async function POST(req: Request) {
     );
   }
 
-  const client = new OpenAI({ apiKey });
+  // ✅ Upstash env check (makes local testing obvious)
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) {
+    return jsonError(
+      "CONFIG_ERROR",
+      "Server is missing UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN configuration.",
+      500
+    );
+  }
+
+    const client = new OpenAI({ apiKey });
+
+  // ✅ Initialize Upstash rate limiter ONLY after env checks (bulletproof)
+  const redis = Redis.fromEnv();
+  const ratelimit = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(2, "10 s"),
+    analytics: false,
+    prefix: "emn:rl",
+  });
 
   const ip = getClientIp(req);
-  const rl = applyRateLimit(ip);
+
+  // You can include user-agent to reduce “office/shared IP” collisions:
+  const ua = req.headers.get("user-agent") ?? "unknown";
+  const identifier = `${ip}:${ua.slice(0, 80)}`;
+
+  const rl = await applyRateLimit(ratelimit, identifier);
   if (!rl.ok) {
-    return jsonError("RATE_LIMITED", "Too many requests. Please wait a minute and try again.", 429);
+    const msg = rl.retryAfterSec
+      ? `Too many requests. Please retry in ~${rl.retryAfterSec}s.`
+      : "Too many requests. Please wait a minute and try again.";
+
+    return jsonError("RATE_LIMITED", msg, 429);
   }
+
+
 
   try {
     const extracted = await extractInput(req);

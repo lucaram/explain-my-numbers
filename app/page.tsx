@@ -829,7 +829,7 @@ export default function HomePage() {
                 ) : (
                   <>
                     <Sparkles size={14} className="opacity-80" />
-                    <span className="text-[12px] font-semibold tracking-[-0.01em]">Generate summary</span>
+                    <span className="text-[12px] font-semibold tracking-[-0.01em]">Explain</span>
                   </>
                 )}
               </button>
@@ -906,7 +906,7 @@ export default function HomePage() {
                 ) : showEditToRerun ? (
                   "Edit input to re-run"
                 ) : (
-                  "Generate summary"
+                  "Explain"
                 )}
               </button>
 
