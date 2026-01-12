@@ -1206,27 +1206,36 @@ export default function HomePage() {
       <footer className="w-full max-w-5xl mx-auto px-4 md:px-8 pb-2 mt-1 print:hidden">
         <div className="pt-3 flex flex-row justify-between items-center gap-3">
           <div className="flex items-center gap-6">
-            <p className="text-[10px] font-bold tracking-[0.26em] uppercase opacity-35">© 2026 Explain</p>
-            <div className="flex items-center gap-2 opacity-35">
+            <p className="text-[10px] font-bold tracking-[0.26em] uppercase opacity-55">© 2026 Explain</p>
+            <div className="flex items-center gap-2 opacity-55">
               <Shield size={12} />
-              <span className="text-[10px] font-bold tracking-[0.26em] uppercase">Privacy</span>
+              <span className="text-[10px] font-bold tracking-[0.26em] uppercase ">Privacy</span>
             </div>
           </div>
 
-          <a
-            href="https://x.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(
-              "p-2.5 rounded-xl transition-all",
-              "text-zinc-400 hover:text-blue-500",
-              "hover:bg-zinc-100/70 dark:hover:bg-white/5",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
-            )}
-            title="X"
-            aria-label="X"
-          >
-            <Twitter size={18} />
+         <a
+  href="https://x.com/Luca1347803"
+  target="_blank"
+  rel="noopener noreferrer"
+  className={cn(
+    "group p-2.5 rounded-xl transition-all",
+    "text-zinc-400 hover:text-blue-500",
+    
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+  )}
+  title="X"
+  aria-label="X"
+>
+
+<svg
+  viewBox="0 0 24 24"
+  className="h-[18px] w-[18px] fill-current transition-transform duration-500 group-hover:rotate-[360deg]"
+  aria-hidden="true"
+>
+
+  <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z" />
+</svg>
+
           </a>
         </div>
       </footer>
