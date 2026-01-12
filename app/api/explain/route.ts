@@ -153,7 +153,7 @@ function assertPasteSize(s: string) {
 }
 
 /** --------------------------
- * Same-site / anti-quota-theft guard
+ * Same-site / anti-quota-theft guard (+ CORS)
  * -------------------------- */
 
 /**
@@ -162,15 +162,26 @@ function assertPasteSize(s: string) {
  * - Configure via env APP_ORIGINS="https://yourdomain.com,https://your-other-domain.com"
  * - Also auto-adds VERCEL_URL / NEXT_PUBLIC_SITE_URL if present.
  */
+function normalizeOriginValue(v: string) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  // normalize trailing slash
+  return s.endsWith("/") ? s.slice(0, -1) : s;
+}
+
 function getAllowedOrigins(): Set<string> {
   const s = new Set<string>();
 
   const add = (v?: string) => {
-    const vv = String(v ?? "").trim();
-    if (!vv) return;
+    const vv0 = String(v ?? "").trim();
+    if (!vv0) return;
+
     // If it's a hostname (vercel), make it https://
-    if (!vv.startsWith("http://") && !vv.startsWith("https://")) s.add(`https://${vv}`);
-    else s.add(vv);
+    const vv =
+      vv0.startsWith("http://") || vv0.startsWith("https://") ? vv0 : `https://${vv0}`;
+
+    const norm = normalizeOriginValue(vv);
+    if (norm) s.add(norm);
   };
 
   const envList = String(process.env.APP_ORIGINS ?? "")
@@ -192,7 +203,7 @@ function enforceSameSite(req: Request) {
   const allowed = getAllowedOrigins();
   if (allowed.size === 0) return;
 
-  const origin = (req.headers.get("origin") ?? "").trim();
+  const origin = normalizeOriginValue((req.headers.get("origin") ?? "").trim());
   const referer = (req.headers.get("referer") ?? "").trim();
 
   // Browser cross-site POSTs usually include Origin.
@@ -212,6 +223,63 @@ function enforceSameSite(req: Request) {
         status: 403,
       });
     }
+  }
+}
+
+/**
+ * Minimal CORS:
+ * - Only reflects allowed origins (from APP_ORIGINS).
+ * - No credentials.
+ * - Adds Vary: Origin for correct caching.
+ */
+function corsHeadersFor(req: Request): Record<string, string> {
+  const allowed = getAllowedOrigins();
+  if (allowed.size === 0) return {};
+
+  const origin = normalizeOriginValue((req.headers.get("origin") ?? "").trim());
+  if (!origin) return {};
+
+  if (!allowed.has(origin)) return {};
+
+  return {
+    "Access-Control-Allow-Origin": origin,
+    Vary: "Origin",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
+function withCors(req: Request, res: NextResponse) {
+  const h = corsHeadersFor(req);
+  for (const [k, v] of Object.entries(h)) res.headers.set(k, v);
+  return res;
+}
+
+function jsonErrorReq(
+  req: Request,
+  code: ApiErrorCode,
+  message: string,
+  status: number,
+  headers?: Record<string, string>
+) {
+  const res = jsonError(code, message, status, headers);
+  return withCors(req, res);
+}
+
+export async function OPTIONS(req: Request) {
+  try {
+    // Allow preflight only for allowed origins (same allowlist as POST)
+    enforceSameSite(req);
+
+    const res = new NextResponse(null, { status: 204 });
+    return withCors(req, res);
+  } catch (err: any) {
+    const isKnown = typeof err?.code === "string" && typeof err?.status === "number";
+    if (isKnown) {
+      return jsonErrorReq(req, err.code as ApiErrorCode, String(err.message ?? "Forbidden").slice(0, 500), err.status);
+    }
+    return jsonErrorReq(req, "SERVER_ERROR", "Server error. Please try again.", 500);
   }
 }
 
@@ -335,7 +403,12 @@ function parseDateish(raw: any): {
     const mm = m[3] ? Number(m[3]) : null;
     if (Number.isFinite(y)) {
       if (mm && mm >= 1 && mm <= 12) {
-        return { ok: true, value: new Date(Date.UTC(y, mm - 1, 1)), granularity: "month", hasYear: true };
+        return {
+          ok: true,
+          value: new Date(Date.UTC(y, mm - 1, 1)),
+          granularity: "month",
+          hasYear: true,
+        };
       }
       return { ok: true, value: new Date(Date.UTC(y, 0, 1)), granularity: "year", hasYear: true };
     }
@@ -775,7 +848,11 @@ function buildCandidateFromGrid(
   const tScore = tabularityScore(grid);
   const rScore = richnessScore(headers, rows);
 
-  const score = clamp(bestHdrScore * 0.35 + tScore * 0.25 + rScore * 0.35 + (rows.length >= 12 ? 0.05 : 0), 0, 1);
+  const score = clamp(
+    bestHdrScore * 0.35 + tScore * 0.25 + rScore * 0.35 + (rows.length >= 12 ? 0.05 : 0),
+    0,
+    1
+  );
 
   return {
     source_kind,
@@ -1734,13 +1811,14 @@ function buildModelPack(candidate: TableCandidate, profile: ProfileMeta) {
 export async function POST(req: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return jsonError("CONFIG_ERROR", "Server is missing OPENAI_API_KEY configuration.", 500);
+    return jsonErrorReq(req, "CONFIG_ERROR", "Server is missing OPENAI_API_KEY configuration.", 500);
   }
 
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) {
-    return jsonError(
+    return jsonErrorReq(
+      req,
       "CONFIG_ERROR",
       "Server is missing UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN configuration.",
       500
@@ -1766,7 +1844,7 @@ export async function POST(req: Request) {
   if (!rl.ok) {
     const retry = rl.retryAfterSec ?? 60;
     const msg = `Too many requests. Please retry in ~${retry}s.`;
-    return jsonError("RATE_LIMITED", msg, 429, { "Retry-After": String(retry) });
+    return jsonErrorReq(req, "RATE_LIMITED", msg, 429, { "Retry-After": String(retry) });
   }
 
   try {
@@ -1779,7 +1857,7 @@ export async function POST(req: Request) {
 
     if (extracted.kind === "excel") {
       const buf = extracted.workbookBuf;
-      if (!buf || !buf.length) return jsonError("EMPTY_INPUT", "Please upload a non-empty workbook.", 400);
+      if (!buf || !buf.length) return jsonErrorReq(req, "EMPTY_INPUT", "Please upload a non-empty workbook.", 400);
 
       candidates = await withTimeout(
         Promise.resolve(buildCandidatesFromWorkbook(buf)),
@@ -1788,12 +1866,18 @@ export async function POST(req: Request) {
       );
     } else {
       const raw = String(extracted.rawText ?? "").trim();
-      if (!raw) return jsonError("EMPTY_INPUT", "Please paste or upload some numbers.", 400);
+      if (!raw) return jsonErrorReq(req, "EMPTY_INPUT", "Please paste or upload some numbers.", 400);
 
       if (extracted.kind === "paste") assertPasteSize(raw);
 
       const sourceKind =
-        extracted.kind === "paste" ? "paste" : extracted.kind === "csv" ? "csv" : extracted.kind === "tsv" ? "tsv" : "txt";
+        extracted.kind === "paste"
+          ? "paste"
+          : extracted.kind === "csv"
+          ? "csv"
+          : extracted.kind === "tsv"
+          ? "tsv"
+          : "txt";
 
       candidates = buildCandidatesFromDelimitedText(raw, sourceKind);
     }
@@ -1823,7 +1907,7 @@ export async function POST(req: Request) {
     }
 
     if (!candidates.length) {
-      return jsonError("EXCEL_PARSE_FAILED", "Could not detect any table-like content in the uploaded file.", 422);
+      return jsonErrorReq(req, "EXCEL_PARSE_FAILED", "Could not detect any table-like content in the uploaded file.", 422);
     }
 
     candidates.sort((a, b) => b.score - a.score);
@@ -1945,12 +2029,12 @@ INSTRUCTIONS:
         temperature: 0.2,
       });
     } catch {
-      return jsonError("UPSTREAM_FAILURE", "Analysis provider error. Please try again.", 503);
+      return jsonErrorReq(req, "UPSTREAM_FAILURE", "Analysis provider error. Please try again.", 503);
     }
 
     let explanationRaw = resp.output_text?.trim() ?? "";
     if (!explanationRaw) {
-      return jsonError("UPSTREAM_FAILURE", "No output generated. Try again.", 502);
+      return jsonErrorReq(req, "UPSTREAM_FAILURE", "No output generated. Try again.", 502);
     }
 
     let cleaned = stripEvidenceStrengthBlock(explanationRaw);
@@ -1977,7 +2061,7 @@ If unsure, write concise content under the correct header and explicitly state u
           temperature: 0.0,
         });
       } catch {
-        return jsonError("UPSTREAM_FAILURE", "Analysis provider error. Please try again.", 503);
+        return jsonErrorReq(req, "UPSTREAM_FAILURE", "Analysis provider error. Please try again.", 503);
       }
 
       const raw2 = resp2.output_text?.trim() ?? "";
@@ -1985,7 +2069,8 @@ If unsure, write concise content under the correct header and explicitly state u
       missing = missingRequiredHeaders(cleaned);
 
       if (missing.length) {
-        return jsonError(
+        return jsonErrorReq(
+          req,
           "BAD_OUTPUT_FORMAT",
           "Model output did not match the required format. Please try again (or simplify the input).",
           502
@@ -1995,7 +2080,7 @@ If unsure, write concise content under the correct header and explicitly state u
 
     const explanation = `${cleaned}\n\nEvidence strength: ${confidence.level} – ${confidence.note}`;
 
-    return NextResponse.json({
+    const okRes = NextResponse.json({
       ok: true,
       explanation,
       warnings: {
@@ -2011,13 +2096,15 @@ If unsure, write concise content under the correct header and explicitly state u
         confidence,
       },
     });
+
+    return withCors(req, okRes);
   } catch (err: any) {
     // MEDIUM: do not leak internal stack/errors by default; log server-side and return generic
     const isKnown = typeof err?.code === "string" && typeof err?.status === "number";
 
     if (!isKnown) {
       console.error("Unhandled /api/explain error:", err);
-      return jsonError("SERVER_ERROR", "Server error. Please try again.", 500);
+      return jsonErrorReq(req, "SERVER_ERROR", "Server error. Please try again.", 500);
     }
 
     const code: ApiErrorCode = err.code;
@@ -2025,6 +2112,6 @@ If unsure, write concise content under the correct header and explicitly state u
 
     // keep the known message, but avoid dumping huge strings
     const msg = String(err.message ?? "Server error").slice(0, 500);
-    return jsonError(code, msg, status);
+    return jsonErrorReq(req, code, msg, status);
   }
 }
