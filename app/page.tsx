@@ -874,9 +874,9 @@ export default function HomePage() {
       <main className="relative max-w-5xl mx-auto px-4 md:px-8 py-4 md:py-6 print:p-0">
         <header className="mb-4 md:mb-6 space-y-2 md:space-y-4 print:hidden">
           <h1 className="text-5xl md:text-[5rem] font-[900] tracking-[-0.06em] leading-[0.85] md:leading-[0.8]">
-            <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Described.</span>{" "}
+            <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Numbers</span>{" "}
             <span className="inline pb-[0.1em] md:pb-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-400 bg-[length:200%_auto] animate-shimmer-text">
-              Then gone.
+              speak.
             </span>
           </h1>
 
