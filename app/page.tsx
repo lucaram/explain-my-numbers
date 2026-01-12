@@ -179,7 +179,7 @@ if (currentHeader === "Evidence strength:") {
       return (
         <div key={i} className="mb-10 last:mb-0 group">
           <h4 className="text-[10px] font-black uppercase tracking-[0.34em] text-blue-600 dark:text-blue-400 mb-4 opacity-80 group-hover:opacity-100 transition-opacity">
-            {currentHeader.replace("Evidence strength", "Evidence").replace(":", "")}
+            {currentHeader.replace("Evidence", "Confidence").replace(":", "")}
 
           </h4>
 
@@ -347,7 +347,6 @@ function VisualAnalysisLoader() {
 
       <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
         <span className="font-semibold">Synthesising patterns</span>
-        <span className="font-medium opacity-70">This stays on-device until you hit submit</span>
       </div>
     </div>
   );
@@ -381,7 +380,7 @@ function ElegantPill({ level }: { level: "Low" | "Medium" | "High" | null }) {
             : "bg-zinc-400"
         )}
       />
-      Evidence {level ?? "Unknown"}
+      Confidence {level ?? "Unknown"}
 
     </span>
   );
