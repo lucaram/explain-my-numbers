@@ -6,7 +6,7 @@ import { Ratelimit } from "@upstash/ratelimit";
 
 /**
  * MODE A (schema-free, comprehensive):
- * - Accept any CSV/TSV/TXT/XLS/XLSX/PDF
+ * - Accept any CSV/TSV/TXT/XLS/XLSX
  * - Excel: detect table regions across all sheets (not schema-based)
  * - Choose best candidate table via scoring (header quality, tabularity, richness)
  * - Build deterministic profile + aggregates + samples
@@ -15,7 +15,6 @@ import { Ratelimit } from "@upstash/ratelimit";
  *
  * IMPORTANT:
  * - Install Excel parser dependency: npm i xlsx
- * - Install pdf parser dependency: npm i pdf-parse
  */
 import * as XLSX from "xlsx";
 
@@ -33,7 +32,6 @@ type ApiErrorCode =
   | "UPSTREAM_FAILURE"
   | "BAD_OUTPUT_FORMAT"
   | "SERVER_ERROR"
-  | "PDF_NO_TEXT"
   | "CONFIG_ERROR";
 
 function jsonError(code: ApiErrorCode, message: string, status: number) {
@@ -44,11 +42,6 @@ function jsonError(code: ApiErrorCode, message: string, status: number) {
 const MAX_PASTE_CHARS = 50_000; // paste-only guard (transparent)
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5MB
 const EXCEL_PARSE_TIMEOUT_MS = 2_000;
-
-/** PDF limit (optional) */
-const MAX_PDF_BYTES = 3 * 1024 * 1024; // 3MB
-
-
 
 /** --------------------------
  * Utilities
@@ -148,36 +141,6 @@ function assertPasteSize(s: string) {
 }
 
 /** --------------------------
- * PDF
- * -------------------------- */
-
-async function readPdfText(file: File): Promise<string> {
-  const ab = await file.arrayBuffer();
-  const buf = Buffer.from(ab);
-
-  // Dynamic import avoids Next bundling / export-shape surprises
-  const mod: any = await import("pdf-parse");
-  const parseFn =
-    typeof mod === "function"
-      ? mod
-      : typeof mod?.default === "function"
-      ? mod.default
-      : typeof mod?.pdfParse === "function"
-      ? mod.pdfParse
-      : null;
-
-  if (!parseFn) {
-    throw Object.assign(new Error("pdf-parse import shape is not callable in this build."), {
-      code: "PDF_NO_TEXT",
-      status: 422,
-    });
-  }
-
-  const parsed = await parseFn(buf);
-  return normalizeNewlines(parsed?.text ?? "").trim();
-}
-
-/** --------------------------
  * Schema-free parsing / typing
  * -------------------------- */
 
@@ -203,36 +166,27 @@ function cleanNumberString(v: string) {
  *   - "1 234,56" is already space-stripped in cleanNumberString()
  */
 function normalizeDecimalSeparators(s: string): string {
-  // Only digits + separators + sign are expected here (currency removed earlier).
   const hasComma = s.includes(",");
   const hasDot = s.includes(".");
 
   if (hasComma && hasDot) {
-    // Determine decimal separator by "last separator wins" heuristic
     const lastComma = s.lastIndexOf(",");
     const lastDot = s.lastIndexOf(".");
     const decimalIsComma = lastComma > lastDot;
 
     if (decimalIsComma) {
-      // EU: thousands are dots, decimal is comma → remove dots, replace comma with dot
       return s.replace(/\./g, "").replace(/,/g, ".");
     } else {
-      // US: thousands are commas, decimal is dot → remove commas
       return s.replace(/,/g, "");
     }
   }
 
   if (hasComma && !hasDot) {
-    // Could be "12,34" (decimal) or "1,234" (thousands)
-    // If exactly one comma and 1–2 digits after it → treat as decimal
     const m = s.match(/^([-+]?\d+),(\d{1,2})$/);
     if (m) return `${m[1]}.${m[2]}`;
-
-    // Otherwise treat commas as thousands separators
     return s.replace(/,/g, "");
   }
 
-  // Dot-only: assume dot decimal, commas absent
   return s;
 }
 
@@ -246,13 +200,9 @@ function parseNumeric(
   const isPercent = /%/.test(s0);
 
   let s = cleanNumberString(s0);
-  // strip percent for numeric parse
   s = s.replace(/%/g, "");
-
-  // Normalize decimal separators BEFORE suffix parsing and Number()
   s = normalizeDecimalSeparators(s);
 
-  // suffixes: 1.2k, 3m, 4.5b (case-insensitive)
   const m = s.match(/^([-+]?\d+(?:\.\d+)?)([kKmMbB])$/);
   if (m) {
     const base = Number(m[1]);
@@ -304,7 +254,6 @@ function parseDateish(raw: any): {
   const s = String(raw ?? "").trim();
   if (!s) return { ok: false, value: null, granularity: "unknown" };
 
-  // YYYY or YYYY-MM or YYYY/MM
   let m = s.match(/^(\d{4})([-\/.](\d{1,2}))?$/);
   if (m) {
     const y = Number(m[1]);
@@ -317,7 +266,6 @@ function parseDateish(raw: any): {
     }
   }
 
-  // Month name (Jan, February) possibly with year
   m = s.match(/^([A-Za-z]{3,9})\s*[,\-\/]?\s*(\d{4})?$/);
   if (m) {
     const monKey = m[1].toLowerCase();
@@ -327,27 +275,13 @@ function parseDateish(raw: any): {
       if (hasYear) {
         const y = Number(m[2]);
         if (Number.isFinite(y)) {
-          return {
-            ok: true,
-            value: new Date(Date.UTC(y, mon, 1)),
-            granularity: "month",
-            hasYear: true,
-          };
+          return { ok: true, value: new Date(Date.UTC(y, mon, 1)), granularity: "month", hasYear: true };
         }
       }
-      // IMPORTANT FIX: do NOT fabricate a placeholder year.
-      // Treat month-only values as labels (not a real date).
-      return {
-        ok: true,
-        value: null,
-        granularity: "unknown",
-        hasYear: false,
-        monthLabel: m[1],
-      };
+      return { ok: true, value: null, granularity: "unknown", hasYear: false, monthLabel: m[1] };
     }
   }
 
-  // Try Date.parse for ISO-ish
   const t = Date.parse(s);
   if (Number.isFinite(t)) {
     const gran =
@@ -408,7 +342,6 @@ function inferProfile(headers: string[], rows: string[][]): ProfileMeta {
   const currencyCols: string[] = [];
   const percentCols: string[] = [];
 
-  // build per-column vectors
   const colVals: string[][] = Array.from({ length: colCount }, () => []);
   for (const r of rows) {
     for (let c = 0; c < colCount; c++) colVals[c].push(String(r[c] ?? "").trim());
@@ -422,7 +355,7 @@ function inferProfile(headers: string[], rows: string[][]): ProfileMeta {
     const nonEmpty = vals.filter((v) => !isBlank(v));
     const missingPct = rowCount === 0 ? 100 : ((rowCount - nonEmpty.length) / rowCount) * 100;
 
-    const sample = nonEmpty.slice(0, 200); // cap for typing
+    const sample = nonEmpty.slice(0, 200);
     let numOk = 0,
       dateOk = 0,
       currencyHit = 0,
@@ -454,7 +387,6 @@ function inferProfile(headers: string[], rows: string[][]): ProfileMeta {
     const uniqueCount = uniq.size;
     const uniqueRatio = nonEmpty.length ? uniqueCount / nonEmpty.length : 1;
 
-    // infer type
     let inferred: InferredType = "text";
     if (nonEmpty.length === 0) inferred = "empty";
     else {
@@ -511,7 +443,6 @@ function inferProfile(headers: string[], rows: string[][]): ProfileMeta {
     columns.push(col);
   }
 
-  // detect time col: best date-like column (or month-like text column)
   let timeCol: string | undefined;
   let bestDateScore = -1;
 
@@ -525,7 +456,6 @@ function inferProfile(headers: string[], rows: string[][]): ProfileMeta {
     }
   }
 
-  // if no date col, try month-ish text col
   if (!timeCol) {
     for (const c of columns) {
       if (c.inferred_type === "text" || c.inferred_type === "categorical") {
@@ -538,14 +468,12 @@ function inferProfile(headers: string[], rows: string[][]): ProfileMeta {
     }
   }
 
-  // group cols: top categorical-ish (exclude time)
   const groupCols = columns
     .filter((c) => c.name !== timeCol && (c.inferred_type === "categorical" || c.inferred_type === "text"))
-    .sort((a, b) => a.unique_count - b.unique_count) // fewer uniques = more group-like
+    .sort((a, b) => a.unique_count - b.unique_count)
     .slice(0, 3)
     .map((c) => c.name);
 
-  // metric cols: numeric-ish (exclude likely IDs: very high uniques and name contains id)
   const metricCols = columns
     .filter((c) => c.inferred_type === "numeric" || c.inferred_type === "mixed")
     .filter((c) => !/^\s*id\s*$/.test(c.normalized_name) && !c.normalized_name.endsWith("id"))
@@ -574,7 +502,6 @@ type Delim = "," | "\t" | ";" | "|";
 function detectDelimiterSmart(text: string): Delim {
   const t = normalizeNewlines(text);
 
-  // Build up to 20 "logical lines" (records-ish), respecting quoted newlines.
   const logicalLines: string[] = [];
   let cur = "";
   let inQuotes = false;
@@ -583,7 +510,6 @@ function detectDelimiterSmart(text: string): Delim {
     const ch = t[i];
 
     if (ch === '"') {
-      // escaped quote inside quotes ("")
       if (inQuotes && t[i + 1] === '"') {
         cur += '"';
         i++;
@@ -614,7 +540,6 @@ function detectDelimiterSmart(text: string): Delim {
   const delims: Delim[] = [",", "\t", ";", "|"];
   let best: { d: Delim; score: number } = { d: ",", score: -1 };
 
-  // Count delimiters OUTSIDE quotes only, per logical line
   const countDelimsOutsideQuotes = (line: string, delim: Delim) => {
     let count = 0;
     let inQ = false;
@@ -623,7 +548,6 @@ function detectDelimiterSmart(text: string): Delim {
       const ch = line[i];
 
       if (ch === '"') {
-        // handle escaped quotes
         if (inQ && line[i + 1] === '"') {
           i++;
         } else {
@@ -644,14 +568,12 @@ function detectDelimiterSmart(text: string): Delim {
     const variance =
       counts.reduce((s, c) => s + Math.pow(c - mean, 2), 0) / Math.max(1, counts.length);
 
-    // prefer: higher mean separators, lower variance
     const score = mean - Math.sqrt(variance) * 0.7;
     if (score > best.score) best = { d, score };
   }
 
   return best.d;
 }
-
 
 function parseDelimitedLine(line: string, delim: Delim): string[] {
   const out: string[] = [];
@@ -701,7 +623,6 @@ function headerLikeScore(row: string[]) {
   const uniq = new Set(nonEmpty.map((s) => s.toLowerCase())).size;
   const uniqRatio = uniq / nonEmpty.length;
 
-  // header tends to be: mostly non-numeric, reasonably unique, not too long
   const nonNumericRatio = 1 - numericish / nonEmpty.length;
   const lengthPenalty = clamp(longish / nonEmpty.length, 0, 1);
 
@@ -770,14 +691,12 @@ function buildCandidateFromGrid(
   source_kind: TableCandidate["source_kind"],
   opts: { sheet?: string; table_index: number; region?: TableCandidate["region"] }
 ): TableCandidate | null {
-  // normalize to strings & drop fully empty rows
   const grid: string[][] = gridRaw
     .map((r) => (r ?? []).map((v) => (v === null || v === undefined ? "" : String(v))).map((s) => s.trim()))
     .filter((r) => r.some((c) => c !== ""));
 
   if (grid.length < 2) return null;
 
-  // pick best header row among first 20 rows
   const scanN = Math.min(20, grid.length);
   let bestHdr = 0;
   let bestHdrScore = -1;
@@ -790,14 +709,12 @@ function buildCandidateFromGrid(
     }
   }
 
-  // header row
   const rawHeader = grid[bestHdr];
   const maxCols = Math.max(...grid.map((r) => r.length), rawHeader.length);
   const headerPadded = Array.from({ length: maxCols }, (_, i) => normalizeHeaderName(rawHeader[i] ?? ""));
   const headersFilled = headerPadded.map((h, i) => (h && h.length ? h : `Column_${i + 1}`));
   const headers = uniqify(headersFilled);
 
-  // data rows: after header, keep rows with at least 2 non-empty cells
   const dataRowsRaw = grid.slice(bestHdr + 1).map((r) => {
     const rr = Array.from({ length: maxCols }, (_, i) => String(r[i] ?? "").trim());
     return rr;
@@ -814,7 +731,6 @@ function buildCandidateFromGrid(
   const tScore = tabularityScore(grid);
   const rScore = richnessScore(headers, rows);
 
-  // overall score
   const score = clamp(bestHdrScore * 0.35 + tScore * 0.25 + rScore * 0.35 + (rows.length >= 12 ? 0.05 : 0), 0, 1);
 
   return {
@@ -841,20 +757,17 @@ function buildCandidatesFromDelimitedText(
 
   const delim = detectDelimiterSmart(t);
 
-  // ✅ Robust record splitter: respects quoted newlines
   const rows: string[][] = [];
   let field = "";
   let row: string[] = [];
   let inQuotes = false;
 
-  // cap to prevent abuse / memory blowups
   const MAX_ROWS = 5000;
 
   for (let i = 0; i < t.length; i++) {
     const ch = t[i];
 
     if (ch === '"') {
-      // escaped quote inside quotes ("")
       if (inQuotes && t[i + 1] === '"') {
         field += '"';
         i++;
@@ -864,20 +777,16 @@ function buildCandidatesFromDelimitedText(
       continue;
     }
 
-    // delimiter ends field ONLY when not in quotes
     if (!inQuotes && ch === delim) {
       row.push(field.trim());
       field = "";
       continue;
     }
 
-    // newline ends record ONLY when not in quotes
     if (!inQuotes && ch === "\n") {
-      // push final field
       row.push(field.trim());
       field = "";
 
-      // keep only non-empty rows
       if (row.some((c) => c !== "")) {
         rows.push(row);
         if (rows.length >= MAX_ROWS) break;
@@ -890,19 +799,16 @@ function buildCandidatesFromDelimitedText(
     field += ch;
   }
 
-  // flush last row
   if (field.length || row.length) {
     row.push(field.trim());
     if (row.some((c) => c !== "")) rows.push(row);
   }
 
-  // if we ended mid-quote, parsing is unreliable but still attempt best-effort
   if (rows.length < 2) return [];
 
   const c = buildCandidateFromGrid(rows, source_kind, { table_index: 0 });
   return c ? [c] : [];
 }
-
 
 /** --------------------------
  * Excel → table candidates (multi-sheet, region-based)
@@ -911,18 +817,10 @@ function buildCandidatesFromDelimitedText(
 function aoaFromSheet(wb: XLSX.WorkBook, sheetName: string): any[][] {
   const ws = wb.Sheets[sheetName];
   if (!ws) return [];
-  // header:1 => array-of-arrays
   const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" }) as any[][];
   return aoa ?? [];
 }
 
-/**
- * Find table-like regions in a sheet AoA.
- * Heuristic:
- * - Keep row blocks where non-empty cell count >= minCells
- * - Merge contiguous qualifying rows into a block
- * - For each block, determine column span by scanning non-empty columns in block
- */
 function detectRegionsInAoa(aoa: any[][]): Array<{ r0: number; c0: number; r1: number; c1: number }> {
   const maxR = aoa.length;
   if (!maxR) return [];
@@ -934,7 +832,7 @@ function detectRegionsInAoa(aoa: any[][]): Array<{ r0: number; c0: number; r1: n
     return n;
   });
 
-  const minCells = 3; // row must have at least 3 non-empty cells to be “table-like”
+  const minCells = 3;
   const goodRows = rowNonEmpty.map((n) => n >= minCells);
 
   const blocks: Array<{ r0: number; r1: number }> = [];
@@ -948,7 +846,7 @@ function detectRegionsInAoa(aoa: any[][]): Array<{ r0: number; c0: number; r1: n
     while (j < maxR && goodRows[j]) j++;
     const r0 = i;
     const r1 = j - 1;
-    if (r1 - r0 + 1 >= 3) blocks.push({ r0, r1 }); // at least 3 rows
+    if (r1 - r0 + 1 >= 3) blocks.push({ r0, r1 });
     i = j;
   }
 
@@ -963,26 +861,24 @@ function detectRegionsInAoa(aoa: any[][]): Array<{ r0: number; c0: number; r1: n
     }
 
     const cols = Array.from(colHits.entries())
-      .filter(([, cnt]) => cnt >= 2) // must appear in at least 2 rows
+      .filter(([, cnt]) => cnt >= 2)
       .map(([c]) => c)
       .sort((a, b) => a - b);
 
     if (!cols.length) continue;
 
-    // find contiguous spans of columns
     let s = 0;
     while (s < cols.length) {
       let e = s;
       while (e + 1 < cols.length && cols[e + 1] === cols[e] + 1) e++;
       const c0 = cols[s];
       const c1 = cols[e];
-      // require at least 3 columns wide
       if (c1 - c0 + 1 >= 3) regions.push({ r0: b.r0, c0, r1: b.r1, c1 });
       s = e + 1;
     }
   }
 
-  return regions.slice(0, 12); // cap regions per sheet
+  return regions.slice(0, 12);
 }
 
 function sliceRegion(aoa: any[][], reg: { r0: number; c0: number; r1: number; c1: number }): any[][] {
@@ -1010,9 +906,8 @@ function buildCandidatesFromWorkbook(buffer: Buffer): TableCandidate[] {
 
     const regions = detectRegionsInAoa(aoa);
 
-    // if no regions, fallback: treat whole sheet as one region (still schema-free)
     if (!regions.length) {
-      const grid = aoa.slice(0, 2000); // cap rows
+      const grid = aoa.slice(0, 2000);
       const c = buildCandidateFromGrid(grid, "excel", { sheet, table_index: globalIdx++ });
       if (c) {
         c.notes.push("No clear table region detected; using best-effort whole-sheet interpretation.");
@@ -1023,7 +918,7 @@ function buildCandidatesFromWorkbook(buffer: Buffer): TableCandidate[] {
 
     let idxInSheet = 0;
     for (const reg of regions) {
-      const grid = sliceRegion(aoa, reg).slice(0, 2000); // cap
+      const grid = sliceRegion(aoa, reg).slice(0, 2000);
       const c = buildCandidateFromGrid(grid, "excel", { sheet, table_index: idxInSheet++, region: reg });
       if (c) {
         candidates.push({ ...c, table_index: globalIdx++ });
@@ -1031,7 +926,6 @@ function buildCandidatesFromWorkbook(buffer: Buffer): TableCandidate[] {
     }
   }
 
-  // de-dupe by (sheet, headerRow, colCount, rowCount) rough
   const seen = new Set<string>();
   const out: TableCandidate[] = [];
   for (const c of candidates) {
@@ -1056,7 +950,6 @@ function pickSampleIndices(n: number) {
   const midCount = Math.max(0, 6 - Math.min(6, new Set([...first, ...last]).size));
   const picked = new Set<number>([...first, ...last]);
 
-  // deterministic pseudo-random using a simple LCG over indices
   let seed = n * 1103515245 + 12345;
   function rnd() {
     seed = (seed * 1664525 + 1013904223) >>> 0;
@@ -1115,7 +1008,6 @@ function buildAggregates(headers: string[], rows: string[][], profile: ProfileMe
     return obj;
   });
 
-  // time key function
   let timeParserOk = false;
   let monthOnlySeen = false;
 
@@ -1126,7 +1018,6 @@ function buildAggregates(headers: string[], rows: string[][], profile: ProfileMe
 
     const pd = parseDateish(raw);
 
-    // Month-only label (no year): do NOT turn this into a fake chronology
     if (pd.ok && !pd.value && pd.monthLabel) {
       monthOnlySeen = true;
       return `Month:${pd.monthLabel}`;
@@ -1143,7 +1034,6 @@ function buildAggregates(headers: string[], rows: string[][], profile: ProfileMe
       return `${y}-${m}-${d}`;
     }
 
-    // month text like "Jan" (fallback)
     const mk = raw.toLowerCase();
     if (MONTHS[mk] !== undefined) {
       monthOnlySeen = true;
@@ -1153,7 +1043,6 @@ function buildAggregates(headers: string[], rows: string[][], profile: ProfileMe
     return raw;
   }
 
-  // Aggregate 1: overall metric summary
   const overall: Record<string, any> = {};
   for (const mi of metricIndex) {
     const vals = parsed.map((o) => {
@@ -1164,7 +1053,6 @@ function buildAggregates(headers: string[], rows: string[][], profile: ProfileMe
     if (a) overall[mi.name] = a;
   }
 
-  // Aggregate 2: by time (if time exists)
   const byTime: Array<Record<string, any>> = [];
   if (timeCol && idx[timeCol] !== undefined) {
     const map = new Map<string, Record<string, any>>();
@@ -1188,9 +1076,6 @@ function buildAggregates(headers: string[], rows: string[][], profile: ProfileMe
 
     const keys = Array.from(map.keys());
 
-    // sort keys:
-    // - real dates first by Date.parse
-    // - then Month: labels alphabetically
     keys.sort((a, b) => {
       const pa = Date.parse(a.length === 7 ? `${a}-01` : a);
       const pb = Date.parse(b.length === 7 ? `${b}-01` : b);
@@ -1217,13 +1102,10 @@ function buildAggregates(headers: string[], rows: string[][], profile: ProfileMe
         `A time-like column "${timeCol}" was detected, but values lack a year (treated as month labels, not a chronological timeline).`
       );
     } else if (!timeParserOk) {
-      assumptions.push(
-        `A time-like column "${timeCol}" was detected, but values are not consistently parseable as dates.`
-      );
+      assumptions.push(`A time-like column "${timeCol}" was detected, but values are not consistently parseable as dates.`);
     }
   }
 
-  // Aggregate 3: by group (top 1 group col)
   const byGroup: Array<Record<string, any>> = [];
   const g0 = groupCols[0];
   if (g0 && idx[g0] !== undefined && metricIndex.length) {
@@ -1328,7 +1210,6 @@ function buildWarningsSchemaFree(rawText: string, headers: string[], rows: strin
     },
   };
 
-  // 1) equation checks (best-effort)
   const lines = normalizeNewlines(rawText).split("\n");
   const eqRe =
     /^\s*([-+]?\d+(?:\.\d+)?)\s*([+\-*/])\s*([-+]?\d+(?:\.\d+)?)\s*=\s*([-+]?\d+(?:\.\d+)?)\s*$/;
@@ -1364,13 +1245,11 @@ function buildWarningsSchemaFree(rawText: string, headers: string[], rows: strin
     }
   }
 
-  // 2) parsing confidence warning
   if (!headers.length || rows.length === 0) {
     cats.parse_issues.count++;
     pushExample(cats.parse_issues, "No clear table rows were detected.", MAX_EXAMPLES_PER_CAT);
   }
 
-  // 3) missingness in numeric columns
   const numericCols = profile.columns.filter((c) => c.inferred_type === "numeric" || c.inferred_type === "mixed");
   for (const c of numericCols.slice(0, 8)) {
     if (c.missing_pct >= 25) {
@@ -1383,7 +1262,6 @@ function buildWarningsSchemaFree(rawText: string, headers: string[], rows: strin
     }
   }
 
-  // 4) mixed percent scale within percent-ish columns
   const idx: Record<string, number> = {};
   headers.forEach((h, i) => (idx[h] = i));
 
@@ -1413,7 +1291,6 @@ function buildWarningsSchemaFree(rawText: string, headers: string[], rows: strin
     }
   }
 
-  // 5) negatives in mostly non-negative columns
   for (const c of numericCols.slice(0, 10)) {
     const ci = idx[c.name];
     if (ci === undefined) continue;
@@ -1436,7 +1313,6 @@ function buildWarningsSchemaFree(rawText: string, headers: string[], rows: strin
     }
   }
 
-  // 6) duplicates on likely key columns (time + top group)
   const timeCol = profile.detected.time_col;
   const g0 = profile.detected.group_cols[0];
   if (timeCol && g0 && idx[timeCol] !== undefined && idx[g0] !== undefined) {
@@ -1490,7 +1366,6 @@ function computeConfidence(candidate: TableCandidate, profile: ProfileMeta) {
   const hasTime = !!profile.detected.time_col;
   const hasGroup = profile.detected.group_cols.length > 0;
 
-  // numeric parse stability proxy: missing pct in numeric cols
   const numericCols = profile.columns.filter((c) => c.inferred_type === "numeric" || c.inferred_type === "mixed");
   const avgMissing =
     numericCols.length > 0
@@ -1578,8 +1453,8 @@ async function readTextFile(file: File): Promise<string> {
 }
 
 type Extracted = {
-  kind: "paste" | "csv" | "tsv" | "txt" | "excel" | "pdf";
-  rawText?: string; // for delimited / pasted / pdf text
+  kind: "paste" | "csv" | "tsv" | "txt" | "excel";
+  rawText?: string; // for delimited / pasted
   workbookBuf?: Buffer; // for excel
   meta?: any;
 };
@@ -1587,7 +1462,6 @@ type Extracted = {
 async function extractInput(req: Request): Promise<Extracted> {
   const ct = (req.headers.get("content-type") ?? "").toLowerCase();
 
-  // JSON path
   if (ct.includes("application/json")) {
     let body: any = null;
     try {
@@ -1605,7 +1479,6 @@ async function extractInput(req: Request): Promise<Extracted> {
     return { kind: "paste", rawText: trimmed };
   }
 
-  // multipart/form-data path
   if (ct.includes("multipart/form-data")) {
     let fd: FormData;
     try {
@@ -1626,7 +1499,7 @@ async function extractInput(req: Request): Promise<Extracted> {
       const ext = getExt(name);
       const mime = String((f as any).type ?? "");
       const size = Number((f as any).size ?? 0);
-      const okByExt = ["xls", "xlsx", "csv", "tsv", "txt", "pdf"].includes(ext);
+      const okByExt = ["xls", "xlsx", "csv", "tsv", "txt"].includes(ext);
 
       if (Number.isFinite(size) && size > MAX_UPLOAD_BYTES) {
         throw Object.assign(
@@ -1639,15 +1512,7 @@ async function extractInput(req: Request): Promise<Extracted> {
         );
       }
 
-      if ((ext === "pdf" || mime.includes("pdf")) && size > MAX_PDF_BYTES) {
-        throw Object.assign(
-          new Error(`PDF is too large (${bytesLabel(size)}). Max allowed is ${bytesLabel(MAX_PDF_BYTES)}.`),
-          { code: "UPLOAD_TOO_LARGE" as ApiErrorCode, status: 413 }
-        );
-      }
-
       const okByMime =
-        mime.includes("pdf") ||
         mime.includes("text/") ||
         mime.includes("csv") ||
         mime.includes("tab-separated-values") ||
@@ -1655,12 +1520,11 @@ async function extractInput(req: Request): Promise<Extracted> {
 
       if (!okByExt && !okByMime) {
         throw Object.assign(
-          new Error("Unsupported file type. Please upload .xlsx, .xls, .csv, .tsv, .txt, or .pdf."),
+          new Error("Unsupported file type. Please upload .xlsx, .xls, .csv, .tsv, or .txt."),
           { code: "UNSUPPORTED_FILE" as ApiErrorCode, status: 415 }
         );
       }
 
-      // Excel
       if (ext === "xls" || ext === "xlsx" || mimeLooksExcel(mime)) {
         const ab = await f.arrayBuffer();
         const buf = Buffer.from(ab);
@@ -1673,29 +1537,6 @@ async function extractInput(req: Request): Promise<Extracted> {
         };
       }
 
-      // PDF (text-based PDFs only; no OCR)
-      if (ext === "pdf" || mime.includes("pdf")) {
-        const rawText = await readPdfText(f);
-
-        if (!rawText) {
-          throw Object.assign(
-            new Error(
-              "This PDF appears to contain no extractable text (it may be scanned). Please export the table as CSV/XLSX instead."
-            ),
-            { code: "PDF_NO_TEXT" as ApiErrorCode, status: 422 }
-          );
-        }
-
-        return {
-          kind: "pdf",
-          rawText,
-          meta: {
-            upload: { filename: name, mime, size_bytes: size, kind: "pdf" },
-          },
-        };
-      }
-
-      // delimited / text
       const rawText = await readTextFile(f);
       return {
         kind: (ext as any) || "txt",
@@ -1706,13 +1547,11 @@ async function extractInput(req: Request): Promise<Extracted> {
       };
     }
 
-    // fallback: if no file, use input
     const trimmed = String(input ?? "").trim();
     if (trimmed) assertPasteSize(trimmed);
     return { kind: "paste", rawText: trimmed };
   }
 
-  // best-effort JSON fallback
   try {
     const body = await req.json();
     const raw = String((body as any)?.input ?? "");
@@ -1735,27 +1574,22 @@ function getClientIp(req: Request) {
   const xr = req.headers.get("x-real-ip");
   if (xr) return xr.trim();
 
-  // ✅ Local dev: Next dev server won't set forwarded headers
-  // so without this everything becomes "unknown" and shares one bucket.
-  return req.headers.get("cf-connecting-ip")?.trim()
-  || req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim()
-  || "127.0.0.1";
-
+  return (
+    req.headers.get("cf-connecting-ip")?.trim() ||
+    req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
+    "127.0.0.1"
+  );
 }
-
 
 async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
   const res = await ratelimit.limit(identifier);
 
   if (res.success) return { ok: true };
 
-  // Optional: tell client when to retry (nice UX)
   const retryAfterSec = Math.max(1, Math.ceil((res.reset - Date.now()) / 1000));
 
   return { ok: false, retryAfterSec };
 }
-
-
 
 /** --------------------------
  * Prompt packer (schema-free)
@@ -1795,17 +1629,11 @@ function buildModelPack(candidate: TableCandidate, profile: ProfileMeta) {
  * -------------------------- */
 
 export async function POST(req: Request) {
-  // ✅ REQUIRED FIX: fail cleanly if API key is missing
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return jsonError(
-      "CONFIG_ERROR",
-      "Server is missing OPENAI_API_KEY configuration.",
-      500
-    );
+    return jsonError("CONFIG_ERROR", "Server is missing OPENAI_API_KEY configuration.", 500);
   }
 
-  // ✅ Upstash env check (makes local testing obvious)
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) {
@@ -1816,9 +1644,8 @@ export async function POST(req: Request) {
     );
   }
 
-    const client = new OpenAI({ apiKey });
+  const client = new OpenAI({ apiKey });
 
-  // ✅ Initialize Upstash rate limiter ONLY after env checks (bulletproof)
   const redis = Redis.fromEnv();
   const ratelimit = new Ratelimit({
     redis,
@@ -1828,8 +1655,6 @@ export async function POST(req: Request) {
   });
 
   const ip = getClientIp(req);
-
-  // You can include user-agent to reduce “office/shared IP” collisions:
   const ua = req.headers.get("user-agent") ?? "unknown";
   const identifier = `${ip}:${ua.slice(0, 80)}`;
 
@@ -1838,16 +1663,12 @@ export async function POST(req: Request) {
     const msg = rl.retryAfterSec
       ? `Too many requests. Please retry in ~${rl.retryAfterSec}s.`
       : "Too many requests. Please wait a minute and try again.";
-
     return jsonError("RATE_LIMITED", msg, 429);
   }
-
-
 
   try {
     const extracted = await extractInput(req);
 
-    // 1) Build candidates (schema-free)
     let candidates: TableCandidate[] = [];
 
     if (extracted.kind === "excel") {
@@ -1863,23 +1684,15 @@ export async function POST(req: Request) {
       const raw = String(extracted.rawText ?? "").trim();
       if (!raw) return jsonError("EMPTY_INPUT", "Please paste or upload some numbers.", 400);
 
-      // paste size guard applies to paste paths
       if (extracted.kind === "paste") assertPasteSize(raw);
 
       const sourceKind =
-        extracted.kind === "paste"
-          ? "paste"
-          : extracted.kind === "csv"
-          ? "csv"
-          : extracted.kind === "tsv"
-          ? "tsv"
-          : "txt";
+        extracted.kind === "paste" ? "paste" : extracted.kind === "csv" ? "csv" : extracted.kind === "tsv" ? "tsv" : "txt";
 
       candidates = buildCandidatesFromDelimitedText(raw, sourceKind);
     }
 
     if (!candidates.length) {
-      // last-ditch: if excel had no candidates, try “unstructured” extraction by flattening non-empty cells
       if (extracted.kind === "excel" && extracted.workbookBuf) {
         const wb = XLSX.read(extracted.workbookBuf, { type: "buffer" });
         const sheet = wb.SheetNames?.[0];
@@ -1902,22 +1715,16 @@ export async function POST(req: Request) {
       return jsonError("EXCEL_PARSE_FAILED", "Could not detect any table-like content in the uploaded file.", 422);
     }
 
-    // 2) Choose best candidate (highest score)
     candidates.sort((a, b) => b.score - a.score);
     const best = candidates[0];
 
-    // 3) Profile + warnings + confidence
     const profile = inferProfile(best.headers, best.rows);
 
-    // ✅ REQUIRED FIX: include both (raw) + TSV so pasted equations + extracted table issues both get detected
-    const warningText =
-      (extracted.rawText ? extracted.rawText : "") + "\n\n" + rowsToTSV(best.headers, best.rows, 200);
-
+    const warningText = (extracted.rawText ? extracted.rawText : "") + "\n\n" + rowsToTSV(best.headers, best.rows, 200);
     const warnings = buildWarningsSchemaFree(warningText, best.headers, best.rows, profile);
 
     const confidence = computeConfidence(best, profile);
 
-    // 4) Build compact pack for the model
     const pack = buildModelPack(best, profile);
 
     const extractionMeta = {
@@ -1946,10 +1753,8 @@ export async function POST(req: Request) {
     if (pack.aggregates.assumptions.length) assumptions.push(...pack.aggregates.assumptions);
     if (pack.aggregates.limitations.length) limitations.push(...pack.aggregates.limitations);
 
-    // if low candidate score, warn explicitly
     if (best.score < 0.45) limitations.push("Table detection confidence is low; column meanings may be ambiguous.");
 
-    // 5) Model call (schema-free interpretation)
     const system = `
 You are "Explain My Numbers", a strict numeric interpreter for unknown business datasets.
 
@@ -2011,7 +1816,6 @@ INSTRUCTIONS:
 - Under "Why it likely changed", only discuss data-internal explanations (e.g. volume up, rate stable). Otherwise state what extra fields would be needed.
 `.trim();
 
-    // 1st attempt
     let resp;
     try {
       resp = await client.responses.create({
@@ -2033,11 +1837,9 @@ INSTRUCTIONS:
       return jsonError("UPSTREAM_FAILURE", "No output generated. Try again.", 502);
     }
 
-    // Clean + format enforce
     let cleaned = stripEvidenceStrengthBlock(explanationRaw);
     let missing = missingRequiredHeaders(cleaned);
 
-    // Retry once if format is broken
     if (missing.length) {
       const fixSystem = `
 You must output ONLY the required sections with the exact headers, in order.
@@ -2075,7 +1877,6 @@ If unsure, write concise content under the correct header and explicitly state u
       }
     }
 
-    // Append deterministic confidence (your UI expects Evidence strength style)
     const explanation = `${cleaned}\n\nEvidence strength: ${confidence.level} – ${confidence.note}`;
 
     return NextResponse.json({

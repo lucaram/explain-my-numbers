@@ -12,12 +12,11 @@ import {
   AlertCircle,
   BarChart3,
   Shield,
-  Twitter,
-  FileText,
   Loader2,
   X,
   Pencil,
   AlertTriangle,
+  FileText,
 } from "lucide-react";
 
 /** TYPES & UTILS */
@@ -117,8 +116,6 @@ function stripScoreFromNote(note: string): string {
     .trim();
 }
 
-
-
 /** Pull out the model's main narrative without the Evidence strength footer (so warnings can sit above it cleanly) */
 function stripEvidenceSection(explanation: string) {
   const text = String(explanation ?? "").replace(/\r\n/g, "\n");
@@ -137,13 +134,11 @@ function formatScoreToPercent(note: string) {
   });
 }
 
-
 /**
  * PREMIUM FORMATTER
  * Splits by the exact headers defined in route.ts
  */
 function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
-
   const sections = text.split(
     /(Summary:|What changed:|Underlying observations:|Why it likely changed:|What it means:|What NOT to conclude:|Evidence strength:)/g
   );
@@ -153,10 +148,10 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
   const rendered = sections.map((part, i) => {
     let trimmed = part.trim();
 
-// ✅ Only change Evidence strength section: score=0.33 -> score=33%
-if (currentHeader === "Evidence strength:") {
-  trimmed = formatScoreToPercent(trimmed);
-}
+    // ✅ Only change Evidence strength section: score=0.33 -> score=33%
+    if (currentHeader === "Evidence strength:") {
+      trimmed = formatScoreToPercent(trimmed);
+    }
 
     if (!trimmed) return null;
 
@@ -180,138 +175,128 @@ if (currentHeader === "Evidence strength:") {
         <div key={i} className="mb-10 last:mb-0 group">
           <h4 className="text-[10px] font-black uppercase tracking-[0.34em] text-blue-600 dark:text-blue-400 mb-4 opacity-80 group-hover:opacity-100 transition-opacity">
             {currentHeader.replace("Evidence", "Confidence").replace(":", "")}
-
           </h4>
 
-<div
-  className={cn(
-    "text-[15px] md:text-[17px] leading-[1.75] font-medium tracking-[-0.01em]",
-    currentHeader === "What NOT to conclude:"
-      ? theme === "dark"
-        ? "text-rose-300 italic"
-        : "text-rose-600/90 italic"
-      : theme === "dark"
-      ? "text-white"
-      : "text-zinc-800"
-  )}
->
-  {currentHeader === "Evidence strength:" ? (
-    (() => {
-      const parsed = parseEvidenceStrength(`Evidence strength: ${trimmed}`);
-      const pct = parseEvidencePercent(parsed.note);
-      const cleanNote = stripScoreFromNote(parsed.note);
-
-      const pill = (lvl: "Low" | "Medium" | "High" | null) => {
-        const map: Record<string, string> = {
-          High: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20",
-          Medium: "bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/20",
-          Low: "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20",
-          null: "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300 border-zinc-500/20",
-        };
-
-        return (
-          <span
+          <div
             className={cn(
-              "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border",
-              "text-[11px] font-black uppercase tracking-[0.18em]",
-              "shadow-[0_1px_0_rgba(255,255,255,0.35)] dark:shadow-[0_1px_0_rgba(255,255,255,0.08)]",
-              map[lvl ?? "null"]
+              "text-[15px] md:text-[17px] leading-[1.75] font-medium tracking-[-0.01em]",
+              currentHeader === "What NOT to conclude:"
+                ? theme === "dark"
+                  ? "text-rose-300 italic"
+                  : "text-rose-600/90 italic"
+                : theme === "dark"
+                ? "text-white"
+                : "text-zinc-800"
             )}
           >
-            <span
-              className={cn(
-                "h-1.5 w-1.5 rounded-full",
-                lvl === "High"
-                  ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.45)]"
-                  : lvl === "Medium"
-                  ? "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.35)]"
-                  : lvl === "Low"
-                  ? "bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.35)]"
-                  : "bg-zinc-400"
-              )}
-            />
-            <span>{lvl ?? "Unknown"}</span>
-            {typeof pct === "number" && (
-              <span
-                className={cn(
-                  "ml-1 px-2 py-0.5 rounded-full border text-[10px] font-black tracking-[0.14em]",
-                  theme === "dark" ? "border-white/10 bg-white/[0.03]" : "border-black/10 bg-black/[0.03]"
-                )}
-              >
-                {pct}%
-              </span>
+            {currentHeader === "Evidence strength:" ? (
+              (() => {
+                const parsed = parseEvidenceStrength(`Evidence strength: ${trimmed}`);
+                const pct = parseEvidencePercent(parsed.note);
+                const cleanNote = stripScoreFromNote(parsed.note);
+
+                const pill = (lvl: "Low" | "Medium" | "High" | null) => {
+                  const map: Record<string, string> = {
+                    High: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20",
+                    Medium: "bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/20",
+                    Low: "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20",
+                    null: "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300 border-zinc-500/20",
+                  };
+
+                  return (
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border",
+                        "text-[11px] font-black uppercase tracking-[0.18em]",
+                        "shadow-[0_1px_0_rgba(255,255,255,0.35)] dark:shadow-[0_1px_0_rgba(255,255,255,0.08)]",
+                        map[lvl ?? "null"]
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "h-1.5 w-1.5 rounded-full",
+                          lvl === "High"
+                            ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.45)]"
+                            : lvl === "Medium"
+                            ? "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.35)]"
+                            : lvl === "Low"
+                            ? "bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.35)]"
+                            : "bg-zinc-400"
+                        )}
+                      />
+                      <span>{lvl ?? "Unknown"}</span>
+                      {typeof pct === "number" && (
+                        <span
+                          className={cn(
+                            "ml-1 px-2 py-0.5 rounded-full border text-[10px] font-black tracking-[0.14em]",
+                            theme === "dark"
+                              ? "border-white/10 bg-white/[0.03]"
+                              : "border-black/10 bg-black/[0.03]"
+                          )}
+                        >
+                          {pct}%
+                        </span>
+                      )}
+                    </span>
+                  );
+                };
+
+                return (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">{pill(parsed.level)}</div>
+
+                    <p
+                      className={cn(
+                        "text-[15px] md:text-[16px] leading-[1.7] font-medium",
+                        theme === "dark" ? "text-white/90" : "text-zinc-800"
+                      )}
+                    >
+                      <span className="font-semibold  mr-1">Reason:</span>
+                      {cleanNote || trimmed}
+                    </p>
+                  </div>
+                );
+              })()
+            ) : (
+              trimmed.split("\n").map((line, li) => {
+                const l = line ?? "";
+                const autoBulletHeaders = new Set([
+                  "What changed:",
+                  "Underlying observations:",
+                  "Why it likely changed:",
+                  "What it means:",
+                  "What NOT to conclude:",
+                  "Evidence strength:",
+                ]);
+
+                const forceBullet = autoBulletHeaders.has(currentHeader);
+
+                const isBullet = forceBullet || l.trim().startsWith("-") || l.trim().startsWith("•");
+
+                const cleaned = l.trim().replace(/^[-•]\s*/, "");
+
+                return (
+                  <p
+                    key={li}
+                    className={cn(
+                      isBullet
+                        ? "pl-7 relative mb-3 before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40"
+                        : "mb-4 last:mb-0"
+                    )}
+                  >
+                    {cleaned}
+                  </p>
+                );
+              })
             )}
-          </span>
-        );
-      };
-
-      return (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-3">
-            {pill(parsed.level)}
-            
           </div>
-
-<p
-  className={cn(
-    "text-[15px] md:text-[16px] leading-[1.7] font-medium",
-    theme === "dark" ? "text-white/90" : "text-zinc-800"
-  )}
->
-  <span className="font-semibold  mr-1">Reason:</span>
-  {cleanNote || trimmed}
-</p>
-
-        </div>
-      );
-    })()
-  ) : (
-    trimmed.split("\n").map((line, li) => {
-      const l = line ?? "";
-      const autoBulletHeaders = new Set([
-  "What changed:",
-  "Underlying observations:",
-  "Why it likely changed:",
-  "What it means:",
-  "What NOT to conclude:",
-  "Evidence strength:",
-]);
-
-const forceBullet = autoBulletHeaders.has(currentHeader);
-
-const isBullet =
-  forceBullet || l.trim().startsWith("-") || l.trim().startsWith("•");
-
-const cleaned = l.trim().replace(/^[-•]\s*/, "");
-
-
-      return (
-        <p
-          key={li}
-          className={cn(
-            isBullet
-              ? "pl-7 relative mb-3 before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40"
-              : "mb-4 last:mb-0"
-          )}
-        >
-          {cleaned}
-        </p>
-      );
-    })
-  )}
-</div>
-
         </div>
       );
     }
 
     // fallback if anything appears outside the known sections
     return (
-      <p
-  key={i}
-  className={cn("mb-4", theme === "dark" ? "text-white/80" : "text-zinc-500")}
->
-
+      <p key={i} className={cn("mb-4", theme === "dark" ? "text-white/80" : "text-zinc-500")}>
         {trimmed}
       </p>
     );
@@ -381,7 +366,6 @@ function ElegantPill({ level }: { level: "Low" | "Medium" | "High" | null }) {
         )}
       />
       Confidence {level ?? "Unknown"}
-
     </span>
   );
 }
@@ -443,13 +427,7 @@ function friendlyErrorMessage(error: ExplainErr["error"], code?: string) {
 }
 
 /** ✅ Compact warnings block (uses backend warnings.categories) */
-function WarningsPanel({
-  warnings,
-  theme,
-}: {
-  warnings?: ExplainOk["warnings"];
-  theme: Theme;
-}) {
+function WarningsPanel({ warnings, theme }: { warnings?: ExplainOk["warnings"]; theme: Theme }) {
   const cats = warnings?.categories ?? [];
   if (!warnings || !warnings.total || cats.length === 0) return null;
 
@@ -566,15 +544,7 @@ function DetectedSheet({ meta, theme }: { meta?: ExplainMeta; theme: Theme }) {
 }
 
 /** ✅ File “chip” (CSV/XLSX) with remove X (replaces filename text) */
-function FileChip({
-  file,
-  theme,
-  onRemove,
-}: {
-  file: File;
-  theme: Theme;
-  onRemove: () => void;
-}) {
+function FileChip({ file, theme, onRemove }: { file: File; theme: Theme; onRemove: () => void }) {
   const name = (file?.name ?? "").toLowerCase();
   const ext = name.includes(".") ? name.split(".").pop() || "" : "";
   const label = (ext || "FILE").toUpperCase();
@@ -599,9 +569,7 @@ function FileChip({
         {label}
       </span>
 
-      {sizeKb ? (
-        <span className="text-[11px] font-semibold tracking-[-0.01em] opacity-70">{sizeKb} KB</span>
-      ) : null}
+      {sizeKb ? <span className="text-[11px] font-semibold tracking-[-0.01em] opacity-70">{sizeKb} KB</span> : null}
 
       <button
         type="button"
@@ -655,9 +623,7 @@ export default function HomePage() {
   //    - If a file is selected, allow re-run (user might just want to run again).
   //    - If no file, keep your existing "edit input to rerun" behavior.
   const canExplain =
-    !loading &&
-    !overLimit &&
-    ((hasFile && true) || (hasText && (!hasResult || inputChangedSinceRun)));
+    !loading && !overLimit && ((hasFile && true) || (hasText && (!hasResult || inputChangedSinceRun)));
 
   useEffect(() => {
     const saved = localStorage.getItem("emn_theme") as Theme | null;
@@ -687,7 +653,6 @@ export default function HomePage() {
 
     // IMPORTANT: do not populate textarea with file content (privacy-first)
     // keep whatever user already typed
-    // setText((prev) => prev);
 
     // allow re-upload of same file
     e.target.value = "";
@@ -786,13 +751,12 @@ export default function HomePage() {
     return stripEvidenceSection(result.explanation);
   }, [result]);
 
- const copyResults = async () => {
-  if (!result || !result.ok) return;
-  await navigator.clipboard.writeText(result.explanation);
-  setCopied(true);
-  setTimeout(() => setCopied(false), 1500);
-};
-
+  const copyResults = async () => {
+    if (!result || !result.ok) return;
+    await navigator.clipboard.writeText(result.explanation);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   const exportPdf = () => {
     if (!result || !result.ok) return;
@@ -831,7 +795,6 @@ export default function HomePage() {
   }, [result]);
 
   // For the button label: treat "file present" as a valid input even if textarea unchanged
-  
   const showEditToRerun = !hasFile && hasResult && !inputChangedSinceRun;
 
   return (
@@ -863,8 +826,6 @@ export default function HomePage() {
       <nav className="sticky top-0 z-[60] backdrop-blur-2xl ">
         <div className="max-w-7xl mx-auto px-4 md:px-8 h-12 md:h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5 select-none">
-
-
             <span className="font-bold tracking-[-0.03em] text-[15px] md:text-base">
               Explain My Numbers <span className="font-semibold opacity-55 tracking-normal">2.0</span>
             </span>
@@ -910,26 +871,48 @@ export default function HomePage() {
           {/* DESKTOP HEADER ACTION BAR */}
           <div className="hidden md:flex items-center justify-between gap-4 p-6 border-b border-zinc-200/100 dark:border-white/5">
             <div className="flex items-center gap-3">
-              <label
-                className={cn(
-                  "emn-upload",
-                  "inline-flex items-center gap-2 px-4 py-2 rounded-2xl cursor-pointer select-none",
-                  "text-[13px] font-semibold tracking-[-0.01em]",
-                  "transition-colors duration-200",
-                  "focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:ring-offset-2 focus-within:ring-offset-transparent",
-                  theme === "dark"
-                    ? "bg-white/10 text-zinc-200 border border-white/10"
-                    : "bg-zinc-100 text-zinc-900 border border-zinc-200 hover:bg-black hover:text-white hover:border-transparent"
-                )}
-              >
-                <Upload size={14} />
-                <span>{selectedFile ? "Change" : "Upload"}</span>
-                <input type="file" className="hidden" onChange={onFile} accept=".csv,.txt,.tsv,.xls,.xlsx,.pdf" />
-              </label>
+  <div className="relative">
+    <label
+      className={cn(
+        "emn-upload",
+        "inline-flex items-center gap-2 px-4 py-2 rounded-2xl cursor-pointer select-none",
+        "text-[13px] font-semibold tracking-[-0.01em]",
+        "transition-colors duration-200",
+        "focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:ring-offset-2 focus-within:ring-offset-transparent",
+        theme === "dark"
+          ? "bg-white/10 text-zinc-200 border border-white/10"
+          : "bg-zinc-100 text-zinc-900 border border-zinc-200 hover:bg-black hover:text-white hover:border-transparent"
+      )}
+    >
+      <Upload size={14} />
+      <span>{selectedFile ? "Change" : "Upload"}</span>
+      <input
+        type="file"
+        className="hidden"
+        onChange={onFile}
+        accept=".csv,.txt,.tsv,.xls,.xlsx"
+      />
+    </label>
 
-              {/* ✅ FIX #3: show file-type chip + red remove button (no filename text) */}
-              {selectedFile && <FileChip file={selectedFile} theme={theme} onRemove={removeFile} />}
-            </div>
+    {/* formats: informational, horizontal, non-clickable */}
+<div className="absolute left-0 top-full mt-2 -translate-x-1 hidden md:flex items-center gap-3 select-none pointer-events-none">
+      {["Excel", "txt", "csv", "tsv"].map((t) => (
+        <span
+          key={t}
+          className={cn(
+            "text-[9px] font-medium  tracking-[0.26em]",
+            theme === "dark" ? "text-white/75" : "text-zinc-500"
+          )}
+        >
+          {t}
+        </span>
+      ))}
+    </div>
+  </div>
+
+  {selectedFile && <FileChip file={selectedFile} theme={theme} onRemove={removeFile} />}
+</div>
+
 
             <div className="flex items-center gap-2">
               <IconButton title="Reset" onClick={reset} tone="neutral" className="emn-reset">
@@ -937,57 +920,49 @@ export default function HomePage() {
               </IconButton>
 
               <button
-  type="button"
-  onClick={explain}
-  disabled={!canExplain}
-  className={cn(
-    // ✅ match Upload's typography + geometry
-    "inline-flex items-center gap-2 px-4 py-2 rounded-2xl select-none",
-    "text-[13px] font-semibold tracking-[-0.01em]",
-    "transition-all duration-200 active:scale-[0.99]",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-    canExplain ? "cursor-pointer" : "cursor-not-allowed",
-
-    // ✅ restore OLD behavior:
-    // - light mode enabled => black/white immediately (when you start typing)
-    // - dark mode enabled  => white/black
-    overLimit
-      ? "bg-rose-600 text-white border border-rose-500/30"
-      : theme === "dark"
-      ? canExplain
-        ? "bg-white text-black border-transparent shadow-[0_18px_60px_rgba(255,255,255,0.10)]"
-        : "bg-white/10 text-zinc-200 border border-white/10"
-      : canExplain
-      ? "bg-black text-white border-transparent shadow-[0_18px_60px_rgba(0,0,0,0.18)]"
-      : "bg-zinc-100 text-zinc-900 border border-zinc-200 hover:bg-black hover:text-white hover:border-transparent"
-  )}
-  title={overLimit ? `${charCount.toLocaleString()}/${MAX_INPUT_CHARS.toLocaleString()}` : undefined}
->
-  {loading ? (
-    <>
-      <Loader2 size={14} className="animate-spin" />
-      <span className="uppercase tracking-[0.12em] text-[11px] font-bold">Analysing…</span>
-    </>
-  ) : overLimit ? (
-  <>
-    <AlertTriangle size={14} className="opacity-90" />
-    <span className="text-[13px] font-semibold tracking-[-0.01em]">{overLimitLabel}</span>
-  </>
-) : showEditToRerun ? (
-
-  <>
-    <Pencil size={14} className="opacity-80" />
-    <span className="text-[14px] font-semibold tracking-[-0.01em]">Edit</span>
-  </>
-) : (
-
-    <>
-      <Sparkles size={14} className="opacity-80" />
-      <span className="text-[13px] font-semibold tracking-[-0.01em]">Explain</span>
-    </>
-  )}
-</button>
-
+                type="button"
+                onClick={explain}
+                disabled={!canExplain}
+                className={cn(
+                  "inline-flex items-center gap-2 px-4 py-2 rounded-2xl select-none",
+                  "text-[13px] font-semibold tracking-[-0.01em]",
+                  "transition-all duration-200 active:scale-[0.99]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                  canExplain ? "cursor-pointer" : "cursor-not-allowed",
+                  overLimit
+                    ? "bg-rose-600 text-white border border-rose-500/30"
+                    : theme === "dark"
+                    ? canExplain
+                      ? "bg-white text-black border-transparent shadow-[0_18px_60px_rgba(255,255,255,0.10)]"
+                      : "bg-white/10 text-zinc-200 border border-white/10"
+                    : canExplain
+                    ? "bg-black text-white border-transparent shadow-[0_18px_60px_rgba(0,0,0,0.18)]"
+                    : "bg-zinc-100 text-zinc-900 border border-zinc-200 hover:bg-black hover:text-white hover:border-transparent"
+                )}
+                title={overLimit ? `${charCount.toLocaleString()}/${MAX_INPUT_CHARS.toLocaleString()}` : undefined}
+              >
+                {loading ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    <span className="uppercase tracking-[0.12em] text-[11px] font-bold">Analysing…</span>
+                  </>
+                ) : overLimit ? (
+                  <>
+                    <AlertTriangle size={14} className="opacity-90" />
+                    <span className="text-[13px] font-semibold tracking-[-0.01em]">{overLimitLabel}</span>
+                  </>
+                ) : showEditToRerun ? (
+                  <>
+                    <Pencil size={14} className="opacity-80" />
+                    <span className="text-[14px] font-semibold tracking-[-0.01em]">Edit</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} className="opacity-80" />
+                    <span className="text-[13px] font-semibold tracking-[-0.01em]">Explain</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
@@ -1020,15 +995,14 @@ export default function HomePage() {
                 className={cn(
                   "p-3 rounded-full border active:scale-[0.98] transition-all cursor-pointer",
                   "focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:ring-offset-2 focus-within:ring-offset-transparent",
-                  theme === "dark"
-                    ? "bg-white/10 text-zinc-200 border border-white/10"
-                    : "bg-zinc-100 text-zinc-800"
+                  theme === "dark" ? "bg-white/10 text-zinc-200 border border-white/10" : "bg-zinc-100 text-zinc-800"
                 )}
                 title="Upload"
                 aria-label="Upload"
               >
                 <Upload size={20} />
-                <input type="file" className="hidden" onChange={onFile} accept=".csv,.txt,.tsv,.xls,.xlsx,.pdf" />
+                {/* ✅ PDF removed */}
+                <input type="file" className="hidden" onChange={onFile} accept=".csv,.txt,.tsv,.xls,.xlsx" />
               </label>
 
               <button
@@ -1037,7 +1011,7 @@ export default function HomePage() {
                 disabled={!canExplain}
                 className={cn(
                   "flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-full transition-all active:scale-[0.99]",
-  "text-[16px] font-semibold tracking-[-0.01em]",
+                  "text-[16px] font-semibold tracking-[-0.01em]",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
                   canExplain ? "cursor-pointer" : "cursor-not-allowed",
                   overLimit
@@ -1056,15 +1030,12 @@ export default function HomePage() {
                   <span className="inline-flex items-center justify-center w-full">
                     <Loader2 className="animate-spin" size={18} />
                   </span>
-) : overLimit ? (
-  <>
-    <AlertTriangle size={16} className="opacity-90 shrink-0" />
-    <span className="text-[12px] font-semibold tracking-[-0.01em]">
-      {overLimitLabel}
-    </span>
-  </>
-) : showEditToRerun ? (
-
+                ) : overLimit ? (
+                  <>
+                    <AlertTriangle size={16} className="opacity-90 shrink-0" />
+                    <span className="text-[12px] font-semibold tracking-[-0.01em]">{overLimitLabel}</span>
+                  </>
+                ) : showEditToRerun ? (
                   "Edit input to re-run"
                 ) : (
                   "Explain"
@@ -1072,24 +1043,21 @@ export default function HomePage() {
               </button>
 
               <button
-  type="button"
-  onClick={reset}
-  className={cn(
-    "p-3 rounded-full border active:scale-[0.98] transition-all cursor-pointer",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-    theme === "dark"
-      ? "bg-white/10 text-zinc-200 border-white/10"
-      : "bg-zinc-100 text-zinc-800 border-zinc-200"
-  )}
-  title="Reset"
-  aria-label="Reset"
->
-
+                type="button"
+                onClick={reset}
+                className={cn(
+                  "p-3 rounded-full border active:scale-[0.98] transition-all cursor-pointer",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                  theme === "dark" ? "bg-white/10 text-zinc-200 border-white/10" : "bg-zinc-100 text-zinc-800 border-zinc-200"
+                )}
+                title="Reset"
+                aria-label="Reset"
+              >
                 <RotateCcw size={20} />
               </button>
             </div>
 
-            {/* ✅ FIX #3 (mobile): show chip instead of filename text */}
+            {/* show chip instead of filename text */}
             {selectedFile && (
               <div className="mt-2 px-2">
                 <FileChip file={selectedFile} theme={theme} onRemove={removeFile} />
@@ -1124,39 +1092,37 @@ export default function HomePage() {
                     <ElegantPill level={evidence.level} />
                   </div>
 
-                  {/* ✅ NEW: show detected Excel sheet when meta is present */}
+                  {/* show detected Excel sheet when meta is present */}
                   <DetectedSheet meta={detectedSheetMeta} theme={theme} />
 
-                  {/* ✅ deterministic sanity warnings surfaced */}
+                  {/* deterministic sanity warnings surfaced */}
                   <WarningsPanel warnings={result.warnings} theme={theme} />
 
-                  {/* ✅ Keep your exact existing formatter for the final output */}
+                  {/* Keep your exact existing formatter for the final output */}
                   <ElegantAnalysis text={analysisText} theme={theme} />
-
 
                   <div className="mt-12 flex flex-wrap items-center gap-3 print:hidden">
                     <button
-  type="button"
-  onClick={copyResults}
-  className={cn(
-    "inline-flex items-center gap-2 px-5 py-3 rounded-2xl border",
-    "text-[13px] font-semibold tracking-[-0.01em]",
-    "transition-all duration-200 active:scale-[0.99]",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-    theme === "dark"
-      ? "border-white/10 hover:bg-white/5 text-white/90"
-      : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
-  )}
->
-  {copied ? (
-    <span className="opacity-70">Copied</span>
-  ) : (
-    <>
-      <Copy size={16} /> Copy
-    </>
-  )}
-</button>
-
+                      type="button"
+                      onClick={copyResults}
+                      className={cn(
+                        "inline-flex items-center gap-2 px-5 py-3 rounded-2xl border",
+                        "text-[13px] font-semibold tracking-[-0.01em]",
+                        "transition-all duration-200 active:scale-[0.99]",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                        theme === "dark"
+                          ? "border-white/10 hover:bg-white/5 text-white/90"
+                          : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
+                      )}
+                    >
+                      {copied ? (
+                        <span className="opacity-70">Copied</span>
+                      ) : (
+                        <>
+                          <Copy size={16} /> Copy
+                        </>
+                      )}
+                    </button>
 
                     <button
                       type="button"
@@ -1211,29 +1177,25 @@ export default function HomePage() {
             </div>
           </div>
 
-         <a
-  href="https://x.com/Luca1347803"
-  target="_blank"
-  rel="noopener noreferrer"
-  className={cn(
-    "group p-2.5 rounded-xl transition-all",
-    "text-zinc-400 hover:text-blue-500",
-    
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
-  )}
-  title="X"
-  aria-label="X"
->
-
-<svg
-  viewBox="0 0 24 24"
-  className="h-[18px] w-[18px] fill-current transition-transform duration-500 group-hover:rotate-[360deg]"
-  aria-hidden="true"
->
-
-  <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z" />
-</svg>
-
+          <a
+            href="https://x.com/Luca1347803"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(
+              "group p-2.5 rounded-xl transition-all",
+              "text-zinc-400 hover:text-blue-500",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+            )}
+            title="X"
+            aria-label="X"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-[18px] w-[18px] fill-current transition-transform duration-500 group-hover:rotate-[360deg]"
+              aria-hidden="true"
+            >
+              <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z" />
+            </svg>
           </a>
         </div>
       </footer>
@@ -1242,8 +1204,9 @@ export default function HomePage() {
         :root {
           color-scheme: light;
         }
-html.dark { color-scheme: dark; }
-
+        html.dark {
+          color-scheme: dark;
+        }
 
         /* ✅ Force Reset hover style in DARK mode (desktop only) */
         @media (hover: hover) and (pointer: fine) {
