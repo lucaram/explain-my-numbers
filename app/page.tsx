@@ -315,7 +315,7 @@ function VisualAnalysisLoader() {
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-700">
       <div className="flex items-center gap-3">
         <div className="h-2 w-2 rounded-full bg-blue-500 animate-ping" />
-        <span className="text-[11px] font-bold tracking-[0.26em] text-blue-600/80 dark:text-blue-400/80 uppercase">
+        <span className="text-[11px] font-bold tracking-[0.26em] text-blue-600/80 dark:text-blue-400/80 ">
           Processing numerical vectors…
         </span>
       </div>
@@ -597,11 +597,17 @@ export default function HomePage() {
   const [lastRunInput, setLastRunInput] = useState<string>("");
   const [copied, setCopied] = useState(false);
 
-  // ✅ NEW: keep the file for multipart uploads (privacy-first: don't dump into textarea)
+  // ✅ keep the file for multipart uploads
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  // ✅ NEW: keep HTTP status for better UI messaging (429/413/etc.)
+  // ✅ keep HTTP status for better UI messaging (429/413/etc.)
   const [lastHttpStatus, setLastHttpStatus] = useState<number | null>(null);
+
+  // ✅ NEW: preserve the user's paste when we lock the textarea for file mode
+  const [savedPaste, setSavedPaste] = useState<string>("");
+
+  // ✅ NEW: show compact inline status text (no banner / no toast)
+  const [fileStatusLine, setFileStatusLine] = useState<string>("");
 
   const resultRef = useRef<HTMLDivElement | null>(null);
 
@@ -617,13 +623,8 @@ export default function HomePage() {
   // ✅ If user is in paste mode (no file), track whether text changed since last run.
   const inputChangedSinceRun = text.trim() !== lastRunInput.trim();
 
-  // ✅ FIX #1: Enable when either pasted text OR a file exists (Excel on empty textarea now works).
-  // ✅ FIX #2: Privacy-first: file uploads don't require showing content in textarea.
-  // ✅ Re-run gating:
-  //    - If a file is selected, allow re-run (user might just want to run again).
-  //    - If no file, keep your existing "edit input to rerun" behavior.
-  const canExplain =
-    !loading && !overLimit && ((hasFile && true) || (hasText && (!hasResult || inputChangedSinceRun)));
+  // ✅ Enable when either pasted text OR a file exists
+  const canExplain = !loading && !overLimit && (hasFile || (hasText && (!hasResult || inputChangedSinceRun)));
 
   useEffect(() => {
     const saved = localStorage.getItem("emn_theme") as Theme | null;
@@ -636,40 +637,56 @@ export default function HomePage() {
     localStorage.setItem("emn_theme", theme);
   }, [theme]);
 
-  /** ✅ Upload handler:
-   * - Accepts CSV/TSV/TXT + XLS/XLSX
-   * - Keeps file for multipart upload
-   * - DOES NOT load content into textarea (privacy-first)
+  /**
+   * ✅ Upload behavior (critical):
+   * - Always lock textarea when file is present.
+   * - Always hide placeholder when file is present.
+   * - If paste existed, preserve it in savedPaste, then clear textarea.
+   * - Show a single inline line: "File selected — paste is cleared to avoid mixing inputs."
+   * - If no paste existed, still clear textarea (it’s already empty), lock it, and show the same line.
    */
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
 
+    const hadPaste = text.trim().length > 0;
+
+    // preserve paste if present, then clear & lock (lock is derived from hasFile)
+    if (hadPaste) setSavedPaste(text);
+    setText("");
+
     setSelectedFile(f);
-    setFileName(f.name); // keep existing state (not shown in UI anymore)
+    setFileName(f.name);
     setResult(null);
     setLastRunInput("");
     setLastHttpStatus(null);
 
-    // IMPORTANT: do not populate textarea with file content (privacy-first)
-    // keep whatever user already typed
+    // show the single inline line (no banner)
+    setFileStatusLine("File selected — paste is cleared to avoid mixing inputs.");
 
     // allow re-upload of same file
     e.target.value = "";
   };
 
+  /**
+   * ✅ Remove file behavior:
+   * - Unlock textarea (derived from hasFile=false)
+   * - Restore saved paste if any; otherwise keep empty
+   * - Clear inline file status line
+   */
   const removeFile = () => {
     setSelectedFile(null);
     setFileName(null);
     setResult(null);
     setLastHttpStatus(null);
-    // don't touch textarea (user might have pasted text too)
+
+    // restore user's previous paste if it existed
+    setText(savedPaste || "");
+    setSavedPaste("");
+    setFileStatusLine("");
   };
 
-  /** ✅ Multipart-first explain:
-   * - If a file was selected: send multipart/form-data with { file, input? }
-   * - If no file: send JSON { input }
-   */
+  /** ✅ Multipart-first explain */
   const explain = async () => {
     if (!canExplain) return;
 
@@ -683,6 +700,8 @@ export default function HomePage() {
       if (selectedFile) {
         const fd = new FormData();
         fd.append("file", selectedFile);
+        // IMPORTANT: textarea is locked + cleared in file mode, so we normally don't append input
+        // but keep this in case you later decide to allow optional context fields.
         if (text.trim().length) fd.append("input", text);
 
         res = await fetch("/api/explain", {
@@ -729,6 +748,8 @@ export default function HomePage() {
 
   const reset = () => {
     setText("");
+    setSavedPaste("");
+    setFileStatusLine("");
     setFileName(null);
     setSelectedFile(null);
     setResult(null);
@@ -797,6 +818,9 @@ export default function HomePage() {
   // For the button label: treat "file present" as a valid input even if textarea unchanged
   const showEditToRerun = !hasFile && hasResult && !inputChangedSinceRun;
 
+  // ✅ Lock textarea whenever file is present (critical)
+  const textareaLocked = hasFile;
+
   return (
     <div
       className={cn(
@@ -850,9 +874,9 @@ export default function HomePage() {
       <main className="relative max-w-5xl mx-auto px-4 md:px-8 py-4 md:py-6 print:p-0">
         <header className="mb-4 md:mb-6 space-y-2 md:space-y-4 print:hidden">
           <h1 className="text-5xl md:text-[5rem] font-[900] tracking-[-0.06em] leading-[0.85] md:leading-[0.8]">
-            <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Data.</span>{" "}
+            <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Described.</span>{" "}
             <span className="inline pb-[0.1em] md:pb-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-400 bg-[length:200%_auto] animate-shimmer-text">
-              Interpreted.
+              Then gone.
             </span>
           </h1>
 
@@ -871,48 +895,39 @@ export default function HomePage() {
           {/* DESKTOP HEADER ACTION BAR */}
           <div className="hidden md:flex items-center justify-between gap-4 p-6 border-b border-zinc-200/100 dark:border-white/5">
             <div className="flex items-center gap-3">
-  <div className="relative">
-    <label
-      className={cn(
-        "emn-upload",
-        "inline-flex items-center gap-2 px-4 py-2 rounded-2xl cursor-pointer select-none",
-        "text-[13px] font-semibold tracking-[-0.01em]",
-        "transition-colors duration-200",
-        "focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:ring-offset-2 focus-within:ring-offset-transparent",
-        theme === "dark"
-          ? "bg-white/10 text-zinc-200 border border-white/10"
-          : "bg-zinc-100 text-zinc-900 border border-zinc-200 hover:bg-black hover:text-white hover:border-transparent"
-      )}
-    >
-      <Upload size={14} />
-      <span>{selectedFile ? "Change" : "Upload"}</span>
-      <input
-        type="file"
-        className="hidden"
-        onChange={onFile}
-        accept=".csv,.txt,.tsv,.xls,.xlsx"
-      />
-    </label>
+              <div className="relative">
+                <label
+                  className={cn(
+                    "emn-upload",
+                    "inline-flex items-center gap-2 px-4 py-2 rounded-2xl cursor-pointer select-none",
+                    "text-[13px] font-semibold tracking-[-0.01em]",
+                    "transition-colors duration-200",
+                    "focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:ring-offset-2 focus-within:ring-offset-transparent",
+                    theme === "dark"
+                      ? "bg-white/10 text-zinc-200 border border-white/10"
+                      : "bg-zinc-100 text-zinc-900 border border-zinc-200 hover:bg-black hover:text-white hover:border-transparent"
+                  )}
+                >
+                  <Upload size={14} />
+                  <span>{selectedFile ? "Change" : "Upload file"}</span>
+                  <input type="file" className="hidden" onChange={onFile} accept=".csv,.txt,.tsv,.xls,.xlsx" />
+                </label>
 
-    {/* formats: informational, horizontal, non-clickable */}
-<div className="absolute left-0 top-full mt-2 -translate-x-1 hidden md:flex items-center gap-3 select-none pointer-events-none">
-      {["Excel", "txt", "csv", "tsv"].map((t) => (
-        <span
-          key={t}
-          className={cn(
-            "text-[9px] font-medium  tracking-[0.26em]",
-            theme === "dark" ? "text-white/75" : "text-zinc-500"
-          )}
-        >
-          {t}
-        </span>
-      ))}
-    </div>
-  </div>
+                {/* formats: informational, horizontal, non-clickable */}
+                <div className="absolute left-0 top-full mt-2 -translate-x-1 hidden md:flex items-center gap-3 select-none pointer-events-none">
+                  {["Excel", "txt", "csv", "tsv"].map((t) => (
+                    <span
+                      key={t}
+                      className={cn("text-[9px] font-medium  tracking-[0.26em]", theme === "dark" ? "text-white/75" : "text-zinc-500")}
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
 
-  {selectedFile && <FileChip file={selectedFile} theme={theme} onRemove={removeFile} />}
-</div>
-
+              {selectedFile && <FileChip file={selectedFile} theme={theme} onRemove={removeFile} />}
+            </div>
 
             <div className="flex items-center gap-2">
               <IconButton title="Reset" onClick={reset} tone="neutral" className="emn-reset">
@@ -944,7 +959,7 @@ export default function HomePage() {
                 {loading ? (
                   <>
                     <Loader2 size={14} className="animate-spin" />
-                    <span className="uppercase tracking-[0.12em] text-[11px] font-bold">Analysing…</span>
+                    <span className=" tracking-[0.12em] text-[11px] font-bold">Analysing…</span>
                   </>
                 ) : overLimit ? (
                   <>
@@ -966,11 +981,25 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* ✅ Fixed-height textarea (ChatGPT-like) */}
+          {/* ✅ Inline status line (no banner). Only shows when file is selected. */}
+          {hasFile && fileStatusLine && (
+            <div className="px-6 md:px-10 pt-4 pb-1">
+              <p className="text-[12px] font-semibold tracking-[-0.01em] text-zinc-700 dark:text-white/70">
+                {fileStatusLine}
+              </p>
+            </div>
+          )}
+
+          {/* ✅ Fixed-height textarea */}
           <textarea
             value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Paste your data here…"
+            onChange={(e) => {
+              // ✅ hard block typing when a file is selected (critical)
+              if (textareaLocked) return;
+              setText(e.target.value);
+            }}
+            disabled={textareaLocked}
+            placeholder={textareaLocked ? "" : "Paste your data here…"} // ✅ hide placeholder when locked (critical)
             className={cn(
               "w-full bg-transparent outline-none resize-none",
               "text-[14px] md:text-[15px] leading-relaxed font-medium tracking-[-0.01em]",
@@ -978,7 +1007,8 @@ export default function HomePage() {
               "h-[175px] md:h-[150px]",
               "p-6 pb-24 md:pt-10 md:pb-10 md:pl-10 md:pr-6",
               "overflow-y-auto emn-scroll",
-              "focus-visible:outline-none"
+              "focus-visible:outline-none",
+              textareaLocked && "cursor-not-allowed select-none opacity-70"
             )}
           />
 
@@ -1001,7 +1031,6 @@ export default function HomePage() {
                 aria-label="Upload"
               >
                 <Upload size={20} />
-                {/* ✅ PDF removed */}
                 <input type="file" className="hidden" onChange={onFile} accept=".csv,.txt,.tsv,.xls,.xlsx" />
               </label>
 
@@ -1141,9 +1170,6 @@ export default function HomePage() {
                       <FileText size={16} /> Export PDF
                     </button>
                   </div>
-
-                  {/* (Optional) If you want to copy ONLY the narrative without Evidence strength: */}
-                  {/* <button onClick={() => navigator.clipboard.writeText(analysisSansEvidence)}>Copy (no confidence)</button> */}
                 </div>
               ) : (
                 <div className="flex items-start gap-4 p-8 rounded-[2rem] bg-rose-500/5 border border-rose-500/10 text-rose-600 dark:text-rose-300 animate-shake">
