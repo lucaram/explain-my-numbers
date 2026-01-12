@@ -627,6 +627,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ExplainResult | null>(null);
   const [lastRunInput, setLastRunInput] = useState<string>("");
+  const [copied, setCopied] = useState(false);
 
   // ✅ NEW: keep the file for multipart uploads (privacy-first: don't dump into textarea)
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -785,10 +786,13 @@ export default function HomePage() {
     return stripEvidenceSection(result.explanation);
   }, [result]);
 
-  const copyResults = async () => {
-    if (!result || !result.ok) return;
-    await navigator.clipboard.writeText(result.explanation);
-  };
+ const copyResults = async () => {
+  if (!result || !result.ok) return;
+  await navigator.clipboard.writeText(result.explanation);
+  setCopied(true);
+  setTimeout(() => setCopied(false), 1500);
+};
+
 
   const exportPdf = () => {
     if (!result || !result.ok) return;
@@ -1134,20 +1138,27 @@ export default function HomePage() {
 
                   <div className="mt-12 flex flex-wrap items-center gap-3 print:hidden">
                     <button
-                      type="button"
-                      onClick={copyResults}
-                      className={cn(
-                        "inline-flex items-center gap-2 px-5 py-3 rounded-2xl border",
-                        "text-[13px] font-semibold tracking-[-0.01em]",
-                        "transition-all duration-200 active:scale-[0.99]",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                        theme === "dark"
-                          ? "border-white/10 hover:bg-white/5 text-white/90"
-                          : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
-                      )}
-                    >
-                      <Copy size={16} /> Copy
-                    </button>
+  type="button"
+  onClick={copyResults}
+  className={cn(
+    "inline-flex items-center gap-2 px-5 py-3 rounded-2xl border",
+    "text-[13px] font-semibold tracking-[-0.01em]",
+    "transition-all duration-200 active:scale-[0.99]",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+    theme === "dark"
+      ? "border-white/10 hover:bg-white/5 text-white/90"
+      : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
+  )}
+>
+  {copied ? (
+    <span className="opacity-70">Copied</span>
+  ) : (
+    <>
+      <Copy size={16} /> Copy
+    </>
+  )}
+</button>
+
 
                     <button
                       type="button"
@@ -1195,10 +1206,10 @@ export default function HomePage() {
       <footer className="w-full max-w-5xl mx-auto px-4 md:px-8 pb-2 mt-1 print:hidden">
         <div className="pt-3 flex flex-row justify-between items-center gap-3">
           <div className="flex items-center gap-6">
-            <p className="text-[10px] font-bold tracking-[0.26em] uppercase opacity-35">© 2026 ExplainMyNumbers</p>
+            <p className="text-[10px] font-bold tracking-[0.26em] uppercase opacity-35">© 2026 Explain</p>
             <div className="flex items-center gap-2 opacity-35">
               <Shield size={12} />
-              <span className="text-[10px] font-bold tracking-[0.26em] uppercase">Privacy secured</span>
+              <span className="text-[10px] font-bold tracking-[0.26em] uppercase">Privacy</span>
             </div>
           </div>
 
