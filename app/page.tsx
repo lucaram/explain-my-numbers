@@ -179,7 +179,8 @@ if (currentHeader === "Evidence strength:") {
       return (
         <div key={i} className="mb-10 last:mb-0 group">
           <h4 className="text-[10px] font-black uppercase tracking-[0.34em] text-blue-600 dark:text-blue-400 mb-4 opacity-80 group-hover:opacity-100 transition-opacity">
-            {currentHeader.replace(":", "")}
+            {currentHeader.replace("Evidence strength", "Evidence").replace(":", "")}
+
           </h4>
 
 <div
@@ -380,7 +381,7 @@ function ElegantPill({ level }: { level: "Low" | "Medium" | "High" | null }) {
             : "bg-zinc-400"
         )}
       />
-      Evidence strength: {level ?? "Unknown"}
+      Evidence {level ?? "Unknown"}
 
     </span>
   );
@@ -1035,7 +1036,7 @@ export default function HomePage() {
                 disabled={!canExplain}
                 className={cn(
                   "flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-full transition-all active:scale-[0.99]",
-  "text-[12px] font-semibold tracking-[-0.01em]",
+  "text-[16px] font-semibold tracking-[-0.01em]",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
                   canExplain ? "cursor-pointer" : "cursor-not-allowed",
                   overLimit
