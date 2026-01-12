@@ -1822,7 +1822,7 @@ export async function POST(req: Request) {
   const redis = Redis.fromEnv();
   const ratelimit = new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(2, "30 s"),
+    limiter: Ratelimit.slidingWindow(30, "60 s"),
     analytics: false,
     prefix: "emn:rl",
   });

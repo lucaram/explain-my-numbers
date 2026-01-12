@@ -16,6 +16,8 @@ import {
   FileText,
   Loader2,
   X,
+  Pencil,
+  AlertTriangle,
 } from "lucide-react";
 
 /** TYPES & UTILS */
@@ -94,6 +96,29 @@ function parseEvidenceStrength(
   return { level: null, note };
 }
 
+function parseEvidencePercent(note: string): number | null {
+  // matches: (score=0.33), (score = 33%), score=0.33, score=33%
+  const m = String(note ?? "").match(/score\s*=\s*([0-9]*\.?[0-9]+)\s*%?/i);
+  if (!m) return null;
+  const raw = Number(m[1]);
+  if (!Number.isFinite(raw)) return null;
+
+  // if it already looks like 33, keep it. If 0.33, convert to 33.
+  const pct = raw <= 1 ? Math.round(raw * 100) : Math.round(raw);
+  return Math.max(0, Math.min(100, pct));
+}
+
+function stripScoreFromNote(note: string): string {
+  // remove "(score=..)" fragments cleanly
+  return String(note ?? "")
+    .replace(/\(\s*score\s*=\s*[0-9]*\.?[0-9]+\s*%?\s*\)\s*/gi, "")
+    .replace(/score\s*=\s*[0-9]*\.?[0-9]+\s*%?\s*;?\s*/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+
+
 /** Pull out the model's main narrative without the Evidence strength footer (so warnings can sit above it cleanly) */
 function stripEvidenceSection(explanation: string) {
   const text = String(explanation ?? "").replace(/\r\n/g, "\n");
@@ -101,11 +126,24 @@ function stripEvidenceSection(explanation: string) {
   return text.replace(/\n\s*Evidence\s*strength\s*:[\s\S]*$/i, "").trim();
 }
 
+function formatScoreToPercent(note: string) {
+  // Converts: "score=0.33" or "score = 0.33" -> "score=33%"
+  // Leaves anything else unchanged.
+  return String(note ?? "").replace(/score\s*=\s*(0?\.\d+|1(?:\.0+)?)\b/gi, (_m, raw) => {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return _m;
+    const pct = Math.round(n * 100);
+    return `score = ${pct}%`;
+  });
+}
+
+
 /**
  * PREMIUM FORMATTER
  * Splits by the exact headers defined in route.ts
  */
-function ElegantAnalysis({ text }: { text: string }) {
+function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
+
   const sections = text.split(
     /(Summary:|What changed:|Underlying observations:|Why it likely changed:|What it means:|What NOT to conclude:|Evidence strength:)/g
   );
@@ -113,7 +151,13 @@ function ElegantAnalysis({ text }: { text: string }) {
   let currentHeader = "";
 
   const rendered = sections.map((part, i) => {
-    const trimmed = part.trim();
+    let trimmed = part.trim();
+
+// ✅ Only change Evidence strength section: score=0.33 -> score=33%
+if (currentHeader === "Evidence strength:") {
+  trimmed = formatScoreToPercent(trimmed);
+}
+
     if (!trimmed) return null;
 
     if (trimmed.endsWith(":")) {
@@ -138,40 +182,135 @@ function ElegantAnalysis({ text }: { text: string }) {
             {currentHeader.replace(":", "")}
           </h4>
 
-          <div
+<div
+  className={cn(
+    "text-[15px] md:text-[17px] leading-[1.75] font-medium tracking-[-0.01em]",
+    currentHeader === "What NOT to conclude:"
+      ? theme === "dark"
+        ? "text-rose-300 italic"
+        : "text-rose-600/90 italic"
+      : theme === "dark"
+      ? "text-white"
+      : "text-zinc-800"
+  )}
+>
+  {currentHeader === "Evidence strength:" ? (
+    (() => {
+      const parsed = parseEvidenceStrength(`Evidence strength: ${trimmed}`);
+      const pct = parseEvidencePercent(parsed.note);
+      const cleanNote = stripScoreFromNote(parsed.note);
+
+      const pill = (lvl: "Low" | "Medium" | "High" | null) => {
+        const map: Record<string, string> = {
+          High: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20",
+          Medium: "bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/20",
+          Low: "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20",
+          null: "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300 border-zinc-500/20",
+        };
+
+        return (
+          <span
             className={cn(
-              "text-[15px] md:text-[17px] leading-[1.75] font-medium tracking-[-0.01em]",
-              currentHeader === "What NOT to conclude:"
-                ? "text-rose-600/90 dark:text-rose-400/90 italic"
-                : "text-zinc-800 dark:text-zinc-200"
+              "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border",
+              "text-[11px] font-black uppercase tracking-[0.18em]",
+              "shadow-[0_1px_0_rgba(255,255,255,0.35)] dark:shadow-[0_1px_0_rgba(255,255,255,0.08)]",
+              map[lvl ?? "null"]
             )}
           >
-            {trimmed.split("\n").map((line, li) => {
-              const l = line ?? "";
-              const isBullet = l.trim().startsWith("-") || l.trim().startsWith("•");
-              const cleaned = isBullet ? l.trim().replace(/^[-•]\s*/, "") : l;
+            <span
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                lvl === "High"
+                  ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.45)]"
+                  : lvl === "Medium"
+                  ? "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.35)]"
+                  : lvl === "Low"
+                  ? "bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.35)]"
+                  : "bg-zinc-400"
+              )}
+            />
+            <span>{lvl ?? "Unknown"}</span>
+            {typeof pct === "number" && (
+              <span
+                className={cn(
+                  "ml-1 px-2 py-0.5 rounded-full border text-[10px] font-black tracking-[0.14em]",
+                  theme === "dark" ? "border-white/10 bg-white/[0.03]" : "border-black/10 bg-black/[0.03]"
+                )}
+              >
+                {pct}%
+              </span>
+            )}
+          </span>
+        );
+      };
 
-              return (
-                <p
-                  key={li}
-                  className={cn(
-                    isBullet
-                      ? "pl-7 relative mb-3 before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40"
-                      : "mb-4 last:mb-0"
-                  )}
-                >
-                  {cleaned}
-                </p>
-              );
-            })}
+      return (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {pill(parsed.level)}
+            
           </div>
+
+<p
+  className={cn(
+    "text-[15px] md:text-[16px] leading-[1.7] font-medium",
+    theme === "dark" ? "text-white/90" : "text-zinc-800"
+  )}
+>
+  <span className="font-semibold  mr-1">Reason:</span>
+  {cleanNote || trimmed}
+</p>
+
+        </div>
+      );
+    })()
+  ) : (
+    trimmed.split("\n").map((line, li) => {
+      const l = line ?? "";
+      const autoBulletHeaders = new Set([
+  "What changed:",
+  "Underlying observations:",
+  "Why it likely changed:",
+  "What it means:",
+  "What NOT to conclude:",
+  "Evidence strength:",
+]);
+
+const forceBullet = autoBulletHeaders.has(currentHeader);
+
+const isBullet =
+  forceBullet || l.trim().startsWith("-") || l.trim().startsWith("•");
+
+const cleaned = l.trim().replace(/^[-•]\s*/, "");
+
+
+      return (
+        <p
+          key={li}
+          className={cn(
+            isBullet
+              ? "pl-7 relative mb-3 before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40"
+              : "mb-4 last:mb-0"
+          )}
+        >
+          {cleaned}
+        </p>
+      );
+    })
+  )}
+</div>
+
         </div>
       );
     }
 
     // fallback if anything appears outside the known sections
     return (
-      <p key={i} className="text-zinc-500 dark:text-zinc-400 mb-4">
+      <p
+  key={i}
+  className={cn("mb-4", theme === "dark" ? "text-white/80" : "text-zinc-500")}
+>
+
         {trimmed}
       </p>
     );
@@ -241,7 +380,8 @@ function ElegantPill({ level }: { level: "Low" | "Medium" | "High" | null }) {
             : "bg-zinc-400"
         )}
       />
-      {level ?? "Unknown"} Evidence strength
+      Evidence strength: {level ?? "Unknown"}
+
     </span>
   );
 }
@@ -795,44 +935,57 @@ export default function HomePage() {
               </IconButton>
 
               <button
-                type="button"
-                onClick={explain}
-                disabled={!canExplain}
-                className={cn(
-                  "inline-flex items-center justify-center gap-2",
-                  "h-10 px-6 rounded-2xl",
-                  "text-[13px] font-semibold tracking-[-0.01em]",
-                  "transition-all duration-200 active:scale-[0.99]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                  canExplain ? "cursor-pointer" : "cursor-not-allowed",
-                  overLimit
-                    ? "bg-rose-600 text-white border border-rose-500/30"
-                    : theme === "dark"
-                    ? canExplain
-                      ? "bg-white text-black border-transparent shadow-[0_18px_60px_rgba(255,255,255,0.10)]"
-                      : "bg-white/10 text-zinc-200 border border-white/10"
-                    : canExplain
-                    ? "bg-black text-white border-transparent shadow-[0_18px_60px_rgba(0,0,0,0.18)]"
-                    : "bg-zinc-100 text-zinc-900 border border-zinc-200"
-                )}
-                title={overLimit ? `${charCount.toLocaleString()}/${MAX_INPUT_CHARS.toLocaleString()}` : undefined}
-              >
-                {loading ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    <span className="uppercase tracking-[0.12em] text-[11px] font-bold">Analysing…</span>
-                  </>
-                ) : overLimit ? (
-                  <span className="text-[12px] font-semibold tracking-[-0.01em]">{overLimitLabel}</span>
-                ) : showEditToRerun ? (
-                  <span className="text-[12px] font-semibold tracking-[-0.01em]">Edit input to rerun</span>
-                ) : (
-                  <>
-                    <Sparkles size={14} className="opacity-80" />
-                    <span className="text-[12px] font-semibold tracking-[-0.01em]">Explain</span>
-                  </>
-                )}
-              </button>
+  type="button"
+  onClick={explain}
+  disabled={!canExplain}
+  className={cn(
+    // ✅ match Upload's typography + geometry
+    "inline-flex items-center gap-2 px-4 py-2 rounded-2xl select-none",
+    "text-[13px] font-semibold tracking-[-0.01em]",
+    "transition-all duration-200 active:scale-[0.99]",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+    canExplain ? "cursor-pointer" : "cursor-not-allowed",
+
+    // ✅ restore OLD behavior:
+    // - light mode enabled => black/white immediately (when you start typing)
+    // - dark mode enabled  => white/black
+    overLimit
+      ? "bg-rose-600 text-white border border-rose-500/30"
+      : theme === "dark"
+      ? canExplain
+        ? "bg-white text-black border-transparent shadow-[0_18px_60px_rgba(255,255,255,0.10)]"
+        : "bg-white/10 text-zinc-200 border border-white/10"
+      : canExplain
+      ? "bg-black text-white border-transparent shadow-[0_18px_60px_rgba(0,0,0,0.18)]"
+      : "bg-zinc-100 text-zinc-900 border border-zinc-200 hover:bg-black hover:text-white hover:border-transparent"
+  )}
+  title={overLimit ? `${charCount.toLocaleString()}/${MAX_INPUT_CHARS.toLocaleString()}` : undefined}
+>
+  {loading ? (
+    <>
+      <Loader2 size={14} className="animate-spin" />
+      <span className="uppercase tracking-[0.12em] text-[11px] font-bold">Analysing…</span>
+    </>
+  ) : overLimit ? (
+  <>
+    <AlertTriangle size={14} className="opacity-90" />
+    <span className="text-[13px] font-semibold tracking-[-0.01em]">{overLimitLabel}</span>
+  </>
+) : showEditToRerun ? (
+
+  <>
+    <Pencil size={14} className="opacity-80" />
+    <span className="text-[14px] font-semibold tracking-[-0.01em]">Edit</span>
+  </>
+) : (
+
+    <>
+      <Sparkles size={14} className="opacity-80" />
+      <span className="text-[13px] font-semibold tracking-[-0.01em]">Explain</span>
+    </>
+  )}
+</button>
+
             </div>
           </div>
 
@@ -881,8 +1034,8 @@ export default function HomePage() {
                 onClick={explain}
                 disabled={!canExplain}
                 className={cn(
-                  "flex-1 py-3 rounded-full transition-all active:scale-[0.99]",
-                  "text-[12px] font-semibold tracking-[-0.01em]",
+                  "flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-full transition-all active:scale-[0.99]",
+  "text-[12px] font-semibold tracking-[-0.01em]",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
                   canExplain ? "cursor-pointer" : "cursor-not-allowed",
                   overLimit
@@ -901,9 +1054,15 @@ export default function HomePage() {
                   <span className="inline-flex items-center justify-center w-full">
                     <Loader2 className="animate-spin" size={18} />
                   </span>
-                ) : overLimit ? (
-                  <span className="inline-flex items-center justify-center w-full whitespace-nowrap">{overLimitLabel}</span>
-                ) : showEditToRerun ? (
+) : overLimit ? (
+  <>
+    <AlertTriangle size={16} className="opacity-90 shrink-0" />
+    <span className="text-[12px] font-semibold tracking-[-0.01em]">
+      {overLimitLabel}
+    </span>
+  </>
+) : showEditToRerun ? (
+
                   "Edit input to re-run"
                 ) : (
                   "Explain"
@@ -911,16 +1070,19 @@ export default function HomePage() {
               </button>
 
               <button
-                type="button"
-                onClick={reset}
-                className={cn(
-                  "p-3 rounded-full border active:scale-[0.98] transition-all cursor-pointer",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                  theme === "dark" ? "bg-white/10 text-rose-300/90 border border-white/10" : "bg-zinc-100 text-rose-600/90"
-                )}
-                title="Reset"
-                aria-label="Reset"
-              >
+  type="button"
+  onClick={reset}
+  className={cn(
+    "p-3 rounded-full border active:scale-[0.98] transition-all cursor-pointer",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+    theme === "dark"
+      ? "bg-white/10 text-zinc-200 border-white/10"
+      : "bg-zinc-100 text-zinc-800 border-zinc-200"
+  )}
+  title="Reset"
+  aria-label="Reset"
+>
+
                 <RotateCcw size={20} />
               </button>
             </div>
@@ -967,7 +1129,8 @@ export default function HomePage() {
                   <WarningsPanel warnings={result.warnings} theme={theme} />
 
                   {/* ✅ Keep your exact existing formatter for the final output */}
-                  <ElegantAnalysis text={analysisText} />
+                  <ElegantAnalysis text={analysisText} theme={theme} />
+
 
                   <div className="mt-12 flex flex-wrap items-center gap-3 print:hidden">
                     <button
@@ -1061,9 +1224,8 @@ export default function HomePage() {
         :root {
           color-scheme: light;
         }
-        .dark :root {
-          color-scheme: dark;
-        }
+html.dark { color-scheme: dark; }
+
 
         /* ✅ Force Reset hover style in DARK mode (desktop only) */
         @media (hover: hover) and (pointer: fine) {
