@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
-
+import { timingSafeEqual } from "crypto";
 /**
  * MODE A (schema-free, comprehensive):
  * - Accept any CSV/TSV/TXT/XLS/XLSX
@@ -32,7 +32,8 @@ type ApiErrorCode =
   | "UPSTREAM_FAILURE"
   | "BAD_OUTPUT_FORMAT"
   | "SERVER_ERROR"
-  | "CONFIG_ERROR";
+  | "CONFIG_ERROR"
+  | "GATE_REQUIRED";
 
 function jsonError(
   code: ApiErrorCode,
@@ -153,6 +154,111 @@ function assertPasteSize(s: string) {
 }
 
 /** --------------------------
+ * Server gate token (Option A)
+ * -------------------------- */
+
+type GatePayload = { iat: number; exp: number };
+
+function base64urlDecodeToBuffer(s: string) {
+  const pad = 4 - (s.length % 4 || 4);
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad);
+  return Buffer.from(b64, "base64");
+}
+
+async function hmacSha256(secret: string, data: string) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(data));
+  return Buffer.from(sig);
+}
+
+/**
+ * Token format: base64url(JSON payload) + "." + base64url(HMAC_SHA256(secret, payloadB64))
+ * Payload contains iat/exp (epoch seconds).
+ *
+ * Header: X-EMN-Gate: <token>
+ */
+async function verifyGateTokenOrThrow(req: Request) {
+  const secret = process.env.EMN_GATE_SECRET;
+  if (!secret) {
+    throw Object.assign(new Error("Server is missing EMN_GATE_SECRET configuration."), {
+      code: "CONFIG_ERROR" as ApiErrorCode,
+      status: 500,
+    });
+  }
+
+  const token = (req.headers.get("x-emn-gate") ?? "").trim();
+  if (!token) {
+    throw Object.assign(new Error("Missing gate token."), {
+      code: "GATE_REQUIRED" as ApiErrorCode,
+      status: 401,
+    });
+  }
+
+  const parts = token.split(".");
+  if (parts.length !== 2) {
+    throw Object.assign(new Error("Invalid gate token."), {
+      code: "GATE_REQUIRED" as ApiErrorCode,
+      status: 401,
+    });
+  }
+
+  const [payloadB64, sigB64] = parts;
+
+  let expected: Buffer;
+  try {
+    expected = await hmacSha256(secret, payloadB64);
+  } catch {
+    throw Object.assign(new Error("Invalid gate token."), {
+      code: "GATE_REQUIRED" as ApiErrorCode,
+      status: 401,
+    });
+  }
+
+  const got = base64urlDecodeToBuffer(sigB64);
+
+  if (got.length !== expected.length || !timingSafeEqual(got, expected)
+) {
+    throw Object.assign(new Error("Invalid gate token."), {
+      code: "GATE_REQUIRED" as ApiErrorCode,
+      status: 401,
+    });
+  }
+
+  let payload: GatePayload | null = null;
+  try {
+    const raw = base64urlDecodeToBuffer(payloadB64).toString("utf8");
+    payload = JSON.parse(raw);
+  } catch {
+    payload = null;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const exp = Number(payload?.exp ?? 0);
+  const iat = Number(payload?.iat ?? 0);
+
+  if (!Number.isFinite(exp) || exp <= now) {
+    throw Object.assign(new Error("Expired gate token."), {
+      code: "GATE_REQUIRED" as ApiErrorCode,
+      status: 401,
+    });
+  }
+
+  if (!Number.isFinite(iat) || iat > now + 60 || iat < now - 60 * 60 * 24) {
+    throw Object.assign(new Error("Invalid gate token."), {
+      code: "GATE_REQUIRED" as ApiErrorCode,
+      status: 401,
+    });
+  }
+}
+
+/** --------------------------
  * Same-site / anti-quota-theft guard (+ CORS)
  * -------------------------- */
 
@@ -165,7 +271,6 @@ function assertPasteSize(s: string) {
 function normalizeOriginValue(v: string) {
   const s = String(v ?? "").trim();
   if (!s) return "";
-  // normalize trailing slash
   return s.endsWith("/") ? s.slice(0, -1) : s;
 }
 
@@ -176,10 +281,7 @@ function getAllowedOrigins(): Set<string> {
     const vv0 = String(v ?? "").trim();
     if (!vv0) return;
 
-    // If it's a hostname (vercel), make it https://
-    const vv =
-      vv0.startsWith("http://") || vv0.startsWith("https://") ? vv0 : `https://${vv0}`;
-
+    const vv = vv0.startsWith("http://") || vv0.startsWith("https://") ? vv0 : `https://${vv0}`;
     const norm = normalizeOriginValue(vv);
     if (norm) s.add(norm);
   };
@@ -194,8 +296,6 @@ function getAllowedOrigins(): Set<string> {
   add(process.env.NEXT_PUBLIC_SITE_URL);
   add(process.env.VERCEL_URL);
 
-  // If nothing configured, don't hard-block (prevents accidental self-lockout),
-  // but you should set APP_ORIGINS before going hard on traffic.
   return s;
 }
 
@@ -206,7 +306,6 @@ function enforceSameSite(req: Request) {
   const origin = normalizeOriginValue((req.headers.get("origin") ?? "").trim());
   const referer = (req.headers.get("referer") ?? "").trim();
 
-  // Browser cross-site POSTs usually include Origin.
   if (origin && !allowed.has(origin)) {
     throw Object.assign(new Error("Forbidden origin."), {
       code: "SERVER_ERROR" as ApiErrorCode,
@@ -214,7 +313,6 @@ function enforceSameSite(req: Request) {
     });
   }
 
-  // Fallback if Origin absent but Referer present.
   if (!origin && referer) {
     const ok = Array.from(allowed).some((a) => referer.startsWith(a));
     if (!ok) {
@@ -245,7 +343,8 @@ function corsHeadersFor(req: Request): Record<string, string> {
     "Access-Control-Allow-Origin": origin,
     Vary: "Origin",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    // ✅ allow your gate token header
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-EMN-Gate",
     "Access-Control-Max-Age": "86400",
   };
 }
@@ -269,7 +368,6 @@ function jsonErrorReq(
 
 export async function OPTIONS(req: Request) {
   try {
-    // Allow preflight only for allowed origins (same allowlist as POST)
     enforceSameSite(req);
 
     const res = new NextResponse(null, { status: 204 });
@@ -277,7 +375,12 @@ export async function OPTIONS(req: Request) {
   } catch (err: any) {
     const isKnown = typeof err?.code === "string" && typeof err?.status === "number";
     if (isKnown) {
-      return jsonErrorReq(req, err.code as ApiErrorCode, String(err.message ?? "Forbidden").slice(0, 500), err.status);
+      return jsonErrorReq(
+        req,
+        err.code as ApiErrorCode,
+        String(err.message ?? "Forbidden").slice(0, 500),
+        err.status
+      );
     }
     return jsonErrorReq(req, "SERVER_ERROR", "Server error. Please try again.", 500);
   }
@@ -293,21 +396,11 @@ function cleanNumberString(v: string) {
   let s = String(v ?? "").trim();
   s = s.replace(/^\uFEFF/, ""); // BOM
   s = s.replace(/\s+/g, "");
-  // parentheses negative
   if (/^\(.*\)$/.test(s)) s = "-" + s.slice(1, -1);
-  // currency symbols
   s = s.replace(/[£$€¥]/g, "");
   return s;
 }
 
-/**
- * EU/US numeric normalization:
- * - Handles:
- *   - "1,234.56" (US) → 1234.56
- *   - "1.234,56" (EU) → 1234.56
- *   - "12,34" (comma decimal) → 12.34
- *   - "1 234,56" is already space-stripped in cleanNumberString()
- */
 function normalizeDecimalSeparators(s: string): string {
   const hasComma = s.includes(",");
   const hasDot = s.includes(".");
@@ -1056,13 +1149,11 @@ function buildCandidatesFromWorkbook(buffer: Buffer): TableCandidate[] {
 
   const sheetNames = sheetNamesAll.slice(0, EXCEL_MAX_SHEETS);
 
-  // Hard cap workbook complexity (prevents huge !ref expansions / zip-bomb-ish structures)
   let totalCells = 0;
   for (const sheet of sheetNames) {
     const ws = wb.Sheets[sheet];
     if (!ws) continue;
     const stats = sheetCellStats(ws);
-    // If a sheet claims an insane range, bail early
     if (stats.rows > 100_000 || stats.cols > 5_000 || stats.cells > 10_000_000) {
       throw Object.assign(
         new Error("Workbook is too complex to safely parse. Please export a smaller sheet/range."),
@@ -1825,6 +1916,22 @@ export async function POST(req: Request) {
     );
   }
 
+  // ✅ Option A: require short-lived server gate token (prevents quota burning)
+  try {
+    await verifyGateTokenOrThrow(req);
+  } catch (err: any) {
+    const isKnown = typeof err?.code === "string" && typeof err?.status === "number";
+    if (isKnown) {
+      return jsonErrorReq(
+        req,
+        err.code as ApiErrorCode,
+        String(err.message ?? "Unauthorized").slice(0, 500),
+        err.status
+      );
+    }
+    return jsonErrorReq(req, "SERVER_ERROR", "Server error. Please try again.", 500);
+  }
+
   const client = new OpenAI({ apiKey });
 
   const redis = Redis.fromEnv();
@@ -1884,7 +1991,6 @@ export async function POST(req: Request) {
 
     if (!candidates.length) {
       if (extracted.kind === "excel" && extracted.workbookBuf) {
-        // Best-effort fallback: build a pseudo-tabular view from first sheet clamped
         try {
           const wb = XLSX.read(extracted.workbookBuf, { type: "buffer" });
           const sheet = wb.SheetNames?.[0];
@@ -1984,7 +2090,6 @@ IMPORTANT:
         ? `SANITY-CHECK SUMMARY (deterministic, non-blocking):\n${warnings.headline}\n`
         : "";
 
-    // Medium: explicit <DATA> delimiter to reduce prompt-injection confusion
     const prompt = `
 Interpret this dataset in a credible way.
 First infer what the dataset likely represents based on column names/types and the samples.
@@ -2099,7 +2204,6 @@ If unsure, write concise content under the correct header and explicitly state u
 
     return withCors(req, okRes);
   } catch (err: any) {
-    // MEDIUM: do not leak internal stack/errors by default; log server-side and return generic
     const isKnown = typeof err?.code === "string" && typeof err?.status === "number";
 
     if (!isKnown) {
@@ -2110,7 +2214,6 @@ If unsure, write concise content under the correct header and explicitly state u
     const code: ApiErrorCode = err.code;
     const status: number = err.status;
 
-    // keep the known message, but avoid dumping huge strings
     const msg = String(err.message ?? "Server error").slice(0, 500);
     return jsonErrorReq(req, code, msg, status);
   }

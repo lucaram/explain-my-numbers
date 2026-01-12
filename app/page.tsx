@@ -66,6 +66,50 @@ const cn = (...xs: Array<string | false | null | undefined>) => xs.filter(Boolea
 const MAX_INPUT_CHARS = 50_000;
 
 /**
+ * ✅ Gate token cache (short-lived)
+ * - We fetch /api/gate, store token + expiry in memory (and sessionStorage as a fallback)
+ * - Always send X-EMN-Gate when calling /api/explain (file + text)
+ * - If /api/explain returns 401 / GATE_REQUIRED, refresh token once and retry
+ */
+type GateResponseOk = { ok: true; gate_token: string; expires_in_s?: number };
+type GateResponseErr = { ok: false; error: string; error_code?: string };
+type GateResponse = GateResponseOk | GateResponseErr;
+
+const GATE_HEADER = "X-EMN-Gate";
+const GATE_CACHE_KEY = "emn_gate_cache_v1";
+const DEFAULT_GATE_TTL_MS = 5 * 60 * 1000; // fallback if expires_in_s isn't provided
+
+function nowMs() {
+  return Date.now();
+}
+
+function safeJsonParse<T>(s: string | null): T | null {
+  if (!s) return null;
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    return null;
+  }
+}
+
+function readGateFromSession(): { token: string; expMs: number } | null {
+  if (typeof window === "undefined") return null;
+  const parsed = safeJsonParse<{ token: string; expMs: number }>(sessionStorage.getItem(GATE_CACHE_KEY));
+  if (!parsed?.token || !parsed?.expMs) return null;
+  if (parsed.expMs <= nowMs() + 5_000) return null; // 5s skew
+  return parsed;
+}
+
+function writeGateToSession(token: string, expMs: number) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(GATE_CACHE_KEY, JSON.stringify({ token, expMs }));
+  } catch {
+    // ignore
+  }
+}
+
+/**
  * Evidence strength parser (bulletproof):
  * supports:
  * - "Evidence strength: High – reason"
@@ -423,6 +467,7 @@ function friendlyErrorMessage(error: ExplainErr["error"], code?: string) {
   if (code === "BAD_OUTPUT_FORMAT") return "Output formatting failed. Try again (or simplify the input).";
   if (code === "NO_MATCHING_SHEET") return error; // already helpful
   if (code === "EXCEL_PARSE_FAILED") return error; // already helpful
+  if (code === "GATE_REQUIRED") return "Security check failed. Please retry.";
   return error;
 }
 
@@ -609,6 +654,10 @@ export default function HomePage() {
   // ✅ NEW: show compact inline status text (no banner / no toast)
   const [fileStatusLine, setFileStatusLine] = useState<string>("");
 
+  // ✅ Gate token (memory cache; sessionStorage fallback)
+  const gateRef = useRef<{ token: string; expMs: number } | null>(null);
+  const gateInFlight = useRef<Promise<string> | null>(null);
+
   const resultRef = useRef<HTMLDivElement | null>(null);
 
   /** ✅ hard limit state (no truncation) */
@@ -636,6 +685,108 @@ export default function HomePage() {
     document.documentElement.classList.toggle("dark", theme === "dark");
     localStorage.setItem("emn_theme", theme);
   }, [theme]);
+
+  // ✅ hydrate gate token from sessionStorage on load
+  useEffect(() => {
+    const fromSess = readGateFromSession();
+    if (fromSess) gateRef.current = fromSess;
+  }, []);
+
+  /**
+   * ✅ Fetch a fresh gate token (deduped), with caching.
+   */
+  const getGateToken = async (forceRefresh = false): Promise<string> => {
+    const cached = gateRef.current;
+    if (!forceRefresh && cached && cached.expMs > nowMs() + 5_000) {
+      return cached.token;
+    }
+
+    const fromSess = !forceRefresh ? readGateFromSession() : null;
+    if (fromSess) {
+      gateRef.current = fromSess;
+      return fromSess.token;
+    }
+
+    if (!forceRefresh && gateInFlight.current) return gateInFlight.current;
+
+    gateInFlight.current = (async () => {
+      const res = await fetch("/api/gate", { method: "POST" });
+      let data: GateResponse;
+      try {
+        data = (await res.json()) as GateResponse;
+      } catch {
+        data = { ok: false, error: "Unexpected gate response.", error_code: "SERVER_ERROR" };
+      }
+
+      if (!res.ok || !data.ok || !(data as any).gate_token) {
+        const msg = (data as any)?.error || "Failed to obtain gate token.";
+        throw new Error(msg);
+      }
+
+      const ttlMs =
+        typeof (data as GateResponseOk).expires_in_s === "number"
+          ? Math.max(5, (data as GateResponseOk).expires_in_s!) * 1000
+          : DEFAULT_GATE_TTL_MS;
+
+      const expMs = nowMs() + ttlMs;
+      const token = (data as GateResponseOk).gate_token;
+
+      gateRef.current = { token, expMs };
+      writeGateToSession(token, expMs);
+
+      return token;
+    })();
+
+    try {
+      return await gateInFlight.current;
+    } finally {
+      gateInFlight.current = null;
+    }
+  };
+
+  /**
+   * ✅ Helper: call /api/explain with gate header and one auto-retry on gate failure.
+   */
+  const callExplainWithGate = async (init: { method: "POST"; headers?: HeadersInit; body?: BodyInit | null }) => {
+    const token = await getGateToken(false);
+
+    const makeHeaders = (base?: HeadersInit, t?: string) => {
+      const h = new Headers(base || {});
+      if (t) h.set(GATE_HEADER, t);
+      return h;
+    };
+
+    // first attempt
+    let res = await fetch("/api/explain", {
+      method: init.method,
+      body: init.body ?? null,
+      headers: makeHeaders(init.headers, token),
+    });
+
+    // if gate required/expired -> refresh + retry once
+    if (res.status === 401) {
+      // try to parse to confirm error_code, but even if parsing fails, retry is safe once
+      let isGate = true;
+      try {
+        const peek = (await res.clone().json()) as ExplainResult;
+        isGate = !peek || !("ok" in peek) || (peek as any).error_code === "GATE_REQUIRED";
+      } catch {
+        // assume gate-related 401
+        isGate = true;
+      }
+
+      if (isGate) {
+        const fresh = await getGateToken(true);
+        res = await fetch("/api/explain", {
+          method: init.method,
+          body: init.body ?? null,
+          headers: makeHeaders(init.headers, fresh),
+        });
+      }
+    }
+
+    return res;
+  };
 
   /**
    * ✅ Upload behavior (critical):
@@ -686,7 +837,7 @@ export default function HomePage() {
     setFileStatusLine("");
   };
 
-  /** ✅ Multipart-first explain */
+  /** ✅ Multipart-first explain (now gated) */
   const explain = async () => {
     if (!canExplain) return;
 
@@ -704,12 +855,13 @@ export default function HomePage() {
         // but keep this in case you later decide to allow optional context fields.
         if (text.trim().length) fd.append("input", text);
 
-        res = await fetch("/api/explain", {
+        res = await callExplainWithGate({
           method: "POST",
           body: fd,
+          // NOTE: don't set Content-Type for FormData; browser will set boundary
         });
       } else {
-        res = await fetch("/api/explain", {
+        res = await callExplainWithGate({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ input: text }),
@@ -805,6 +957,8 @@ export default function HomePage() {
         ? "Tip: ensure one sheet includes the required headers (or export that sheet to CSV)."
         : result.error_code === "UPSTREAM_FAILURE" || lastHttpStatus === 503
         ? "Tip: try again shortly."
+        : result.error_code === "GATE_REQUIRED" || lastHttpStatus === 401
+        ? "Tip: retry once. If it persists, hard refresh the page."
         : null;
 
     return { msg, hint };
@@ -918,7 +1072,10 @@ export default function HomePage() {
                   {["Excel", "txt", "csv", "tsv"].map((t) => (
                     <span
                       key={t}
-                      className={cn("text-[9px] font-medium  tracking-[0.26em]", theme === "dark" ? "text-white/75" : "text-zinc-500")}
+                      className={cn(
+                        "text-[9px] font-medium  tracking-[0.26em]",
+                        theme === "dark" ? "text-white/75" : "text-zinc-500"
+                      )}
                     >
                       {t}
                     </span>
