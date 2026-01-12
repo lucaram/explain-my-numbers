@@ -863,9 +863,7 @@ export default function HomePage() {
       <nav className="sticky top-0 z-[60] backdrop-blur-2xl ">
         <div className="max-w-7xl mx-auto px-4 md:px-8 h-12 md:h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5 select-none">
-            <div className="w-7 h-7 rounded-xl bg-black dark:bg-white flex items-center justify-center shadow-[0_8px_30px_rgba(0,0,0,0.18)] dark:shadow-[0_8px_30px_rgba(255,255,255,0.06)]">
-              <Sparkles size={14} className="text-white dark:text-black" />
-            </div>
+
 
             <span className="font-bold tracking-[-0.03em] text-[15px] md:text-base">
               Explain My Numbers <span className="font-semibold opacity-55 tracking-normal">2.0</span>
