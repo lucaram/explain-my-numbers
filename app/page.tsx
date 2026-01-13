@@ -635,6 +635,8 @@ export default function HomePage() {
   const hasResult = !!result;
   const inputChangedSinceRun = text.trim() !== lastRunInput.trim();
 
+
+  
   // ✅ IMPORTANT: we no longer use this to disable the button.
   // We only use it to decide if explain() should run or show a message.
   const canExplain = !loading && !overLimit && (hasFile || (hasText && (!hasResult || inputChangedSinceRun)));

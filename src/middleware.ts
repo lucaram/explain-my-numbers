@@ -1,42 +1,19 @@
 // src/middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 
-function base64Nonce(bytes = 16) {
-  // Edge-safe random nonce
-  const arr = new Uint8Array(bytes);
-  crypto.getRandomValues(arr);
-
-  // base64
-  let s = "";
-  for (const b of arr) s += String.fromCharCode(b);
-  return btoa(s);
-}
-
 export function middleware(req: NextRequest) {
   const res = NextResponse.next();
-  const nonce = base64Nonce();
 
   const isProd = process.env.NODE_ENV === "production";
   const proto = (req.headers.get("x-forwarded-proto") || "").toLowerCase();
 
   // --------------------------
-  // CSP (production-ready for Next.js)
+  // CSP (Option A: Next.js-safe)
   // --------------------------
-  //
-  // Key decisions:
-  // - We DO NOT enforce a nonce-only policy yet, because Next won't automatically
-  //   apply this nonce to all script tags unless you explicitly wire it in.
-  // - Production stays strict without breaking Next runtime.
-  // - Dev gets the minimal relaxations to avoid HMR/Fast Refresh CSP breakage.
-  //
-  // If you later wire the nonce into your scripts, you can tighten script-src
-  // (remove unsafe-inline / unsafe-eval) and rely on nonce.
-  //
   const scriptSrc = isProd
-    ? // Production: avoid breaking Next runtime; keep strict-ish baseline.
-      // If you later wire nonce into scripts, you can remove 'unsafe-inline'.
-      "script-src 'self' 'unsafe-inline'"
-    : // Dev: allow eval + ws for HMR/Fast Refresh and dev tooling.
+    ? // Production: compatible with Next.js runtime/hydration across deployments.
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+    : // Dev: allow eval for tooling/HMR.
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
 
   const connectSrc = isProd
@@ -55,7 +32,7 @@ export function middleware(req: NextRequest) {
     // Styles: Next can inject inline styles; keep for compatibility.
     "style-src 'self' 'unsafe-inline'",
 
-    // Scripts (see above)
+    // Scripts (Next.js-safe)
     scriptSrc,
 
     // Images + blobs/data for previews/icons
@@ -89,7 +66,7 @@ export function middleware(req: NextRequest) {
   res.headers.set("X-Content-Type-Options", "nosniff");
   res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
 
-  // Redundant with CSP frame-ancestors, but fine (belt + braces)
+  // Redundant with CSP frame-ancestors, but fine
   res.headers.set("X-Frame-Options", "DENY");
 
   res.headers.set(
@@ -109,23 +86,17 @@ export function middleware(req: NextRequest) {
   res.headers.set("Cross-Origin-Resource-Policy", "same-origin");
 
   // ✅ HSTS (production-only + only when HTTPS at the edge)
-  // - Will NOT show on localhost (expected)
-  // - On Vercel, x-forwarded-proto is usually "https"
   if (isProd && proto === "https") {
     res.headers.set(
       "Strict-Transport-Security",
-      "max-age=31536000; includeSubDomains; preload"
+      "max-age=31536000" //if you use your subdomain rather than vercel use  "max-age=31536000; includeSubDomains; preload" and consider nonce. 
     );
   }
-
-  // Optional: expose nonce for future wiring (not enforced by CSP above yet)
-  res.headers.set("x-nonce", nonce);
 
   return res;
 }
 
 // Apply to everything (pages + api) except Next internals/static assets.
-// Keeping /api included is fine (mostly irrelevant for CSP, but harmless).
 export const config = {
   matcher: [
     "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)",
