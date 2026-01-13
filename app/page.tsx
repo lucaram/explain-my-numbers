@@ -112,9 +112,7 @@ function writeGateToSession(token: string, expMs: number) {
 /**
  * Evidence strength parser (bulletproof)
  */
-function parseEvidenceStrength(
-  explanation: string
-): { level: "Low" | "Medium" | "High" | null; note: string } {
+function parseEvidenceStrength(explanation: string): { level: "Low" | "Medium" | "High" | null; note: string } {
   const text = String(explanation ?? "").replace(/\r\n/g, "\n");
   const m = text.match(
     /(?:^|\n)\s*Evidence\s*strength\s*:\s*(?:\n\s*)*(Low|Medium|High)\b\s*(?:[:\-–—]\s*)?(.*)$/i
@@ -199,19 +197,31 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
     if (isHeader) {
       return (
         <div key={i} className="mb-10 last:mb-0 group">
-          <h4 className="text-[10px] font-black uppercase tracking-[0.34em] text-blue-600 dark:text-blue-400 mb-4 opacity-80 group-hover:opacity-100 transition-opacity">
-            {currentHeader.replace("Evidence", "Confidence").replace(":", "")}
-          </h4>
+          <div className="flex items-center gap-3 mb-4">
+            <span
+              className={cn("h-1.5 w-1.5 rounded-full", theme === "dark" ? "bg-blue-400/60" : "bg-blue-600/50")}
+              aria-hidden="true"
+            />
+            <h4
+              className={cn(
+                "text-[10px] font-black uppercase tracking-[0.34em]",
+                "text-blue-600/80 dark:text-blue-400/80",
+                "transition-opacity duration-200 opacity-85 group-hover:opacity-100"
+              )}
+            >
+              {currentHeader.replace("Evidence", "Confidence").replace(":", "")}
+            </h4>
+          </div>
 
           <div
             className={cn(
-              "text-[15px] md:text-[17px] leading-[1.75] font-medium tracking-[-0.01em]",
+              "text-[15px] md:text-[17px] leading-[1.8] font-medium tracking-[-0.012em]",
               currentHeader === "What NOT to conclude:"
                 ? theme === "dark"
                   ? "text-rose-300 italic"
                   : "text-rose-600/90 italic"
                 : theme === "dark"
-                ? "text-white"
+                ? "text-white/92"
                 : "text-zinc-800"
             )}
           >
@@ -223,10 +233,10 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
 
                 const pill = (lvl: "Low" | "Medium" | "High" | null) => {
                   const map: Record<string, string> = {
-                    High: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20",
-                    Medium: "bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/20",
-                    Low: "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20",
-                    null: "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300 border-zinc-500/20",
+                    High: "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-emerald-500/25",
+                    Medium: "bg-amber-500/10 text-amber-900 dark:text-amber-200 border-amber-500/25",
+                    Low: "bg-rose-500/10 text-rose-800 dark:text-rose-200 border-rose-500/25",
+                    null: "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200 border-zinc-500/25",
                   };
 
                   return (
@@ -234,7 +244,9 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
                       className={cn(
                         "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border",
                         "text-[11px] font-black uppercase tracking-[0.18em]",
-                        "shadow-[0_1px_0_rgba(255,255,255,0.35)] dark:shadow-[0_1px_0_rgba(255,255,255,0.08)]",
+                        "shadow-[0_1px_0_rgba(255,255,255,0.32)] dark:shadow-[0_1px_0_rgba(255,255,255,0.08)]",
+                        "transition-transform duration-200 will-change-transform",
+                        "hover:translate-y-[-1px]",
                         map[lvl ?? "null"]
                       )}
                     >
@@ -242,11 +254,11 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
                         className={cn(
                           "h-1.5 w-1.5 rounded-full",
                           lvl === "High"
-                            ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.45)]"
+                            ? "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.40)]"
                             : lvl === "Medium"
-                            ? "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.35)]"
+                            ? "bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.30)]"
                             : lvl === "Low"
-                            ? "bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.35)]"
+                            ? "bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.30)]"
                             : "bg-zinc-400"
                         )}
                       />
@@ -271,7 +283,7 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
 
                     <p
                       className={cn(
-                        "text-[15px] md:text-[16px] leading-[1.7] font-medium",
+                        "text-[15px] md:text-[16px] leading-[1.75] font-medium",
                         theme === "dark" ? "text-white/90" : "text-zinc-800"
                       )}
                     >
@@ -301,6 +313,7 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
                   <p
                     key={li}
                     className={cn(
+                      "transition-colors",
                       isBullet
                         ? "pl-7 relative mb-3 before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40"
                         : "mb-4 last:mb-0"
@@ -317,14 +330,14 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
     }
 
     return (
-      <p key={i} className={cn("mb-4", theme === "dark" ? "text-white/80" : "text-zinc-500")}>
+      <p key={i} className={cn("mb-4", theme === "dark" ? "text-white/78" : "text-zinc-600")}>
         {trimmed}
       </p>
     );
   });
 
   return (
-    <div id="analysis-content" className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div id="analysis-content" className={cn("animate-in fade-in slide-in-from-bottom-3 duration-700", "motion-reduce:animate-none")}>
       {rendered}
     </div>
   );
@@ -332,26 +345,29 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
 
 function VisualAnalysisLoader() {
   return (
-    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-700">
+    <div className="space-y-8 animate-in fade-in zoom-in-95 duration-700 motion-reduce:animate-none">
       <div className="flex items-center gap-3">
-        <div className="h-2 w-2 rounded-full bg-blue-500 animate-ping" />
-        <span className="text-[11px] font-bold tracking-[0.26em] text-blue-600/80 dark:text-blue-400/80 ">
+        <div className="h-2 w-2 rounded-full bg-blue-500 animate-ping motion-reduce:animate-none" />
+        <span className="text-[11px] font-bold tracking-[0.26em] text-blue-600/80 dark:text-blue-400/80">
           Processing numerical vectors…
         </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 h-32 items-end px-2">
+      <div className="grid grid-cols-6 gap-3 h-28 items-end px-1">
         {[60, 100, 45, 80, 30, 90].map((h, i) => (
           <div
             key={i}
             style={{ height: `${h}%` }}
-            className="bg-gradient-to-t from-blue-500/25 to-transparent rounded-t-xl animate-pulse"
+            className="bg-gradient-to-t from-blue-500/22 to-transparent rounded-t-xl animate-pulse motion-reduce:animate-none"
           />
         ))}
       </div>
 
       <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
         <span className="font-semibold">Synthesising patterns</span>
+        <span className="tracking-[0.22em] uppercase text-[10px] font-bold opacity-70">
+          Please wait
+        </span>
       </div>
     </div>
   );
@@ -359,17 +375,19 @@ function VisualAnalysisLoader() {
 
 function ElegantPill({ level }: { level: "Low" | "Medium" | "High" | null }) {
   const config: Record<string, string> = {
-    High: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20",
-    Medium: "bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/20",
-    Low: "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20",
-    null: "bg-zinc-500/10 text-zinc-700 dark:text-zinc-300 border-zinc-500/20",
+    High: "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-emerald-500/25",
+    Medium: "bg-amber-500/10 text-amber-900 dark:text-amber-200 border-amber-500/25",
+    Low: "bg-rose-500/10 text-rose-800 dark:text-rose-200 border-rose-500/25",
+    null: "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200 border-zinc-500/25",
   };
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border text-[10px] font-bold uppercase tracking-[0.2em]",
-        "shadow-[0_1px_0_rgba(255,255,255,0.35)] dark:shadow-[0_1px_0_rgba(255,255,255,0.08)]",
+        "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border",
+        "text-[10px] font-black uppercase tracking-[0.2em]",
+        "shadow-[0_1px_0_rgba(255,255,255,0.32)] dark:shadow-[0_1px_0_rgba(255,255,255,0.08)]",
+        "transition-transform duration-200 will-change-transform hover:translate-y-[-1px]",
         config[level ?? "null"]
       )}
     >
@@ -377,11 +395,11 @@ function ElegantPill({ level }: { level: "Low" | "Medium" | "High" | null }) {
         className={cn(
           "h-1.5 w-1.5 rounded-full",
           level === "High"
-            ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]"
+            ? "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.40)]"
             : level === "Medium"
-            ? "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.35)]"
+            ? "bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.30)]"
             : level === "Low"
-            ? "bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.35)]"
+            ? "bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.30)]"
             : "bg-zinc-400"
         )}
       />
@@ -413,14 +431,11 @@ function IconButton({
         "inline-flex items-center justify-center rounded-full cursor-pointer",
         "h-9 w-9 md:h-10 md:w-10",
         "transition-all duration-200 active:scale-[0.98]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+        "shadow-[0_1px_0_rgba(255,255,255,0.22)] dark:shadow-[0_1px_0_rgba(255,255,255,0.06)]",
         tone === "danger"
           ? "text-rose-500/80 hover:text-rose-500 hover:bg-rose-500/10"
-          : cn(
-              "text-zinc-500 dark:text-zinc-400",
-              "hover:bg-black hover:text-white",
-              "dark:hover:bg-white/5 dark:hover:text-white"
-            ),
+          : cn("text-zinc-500 dark:text-zinc-400", "hover:bg-black/90 hover:text-white", "dark:hover:bg-white/8 dark:hover:text-white"),
         className
       )}
     >
@@ -453,7 +468,8 @@ function WarningsPanel({ warnings, theme }: { warnings?: ExplainOk["warnings"]; 
     <div
       className={cn(
         "mb-10 rounded-[2rem] border p-5 md:p-6 print:hidden",
-        theme === "dark" ? "bg-white/[0.02] border-white/10" : "bg-zinc-50 border-zinc-200"
+        "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)]",
+        theme === "dark" ? "bg-white/[0.02] border-white/10" : "bg-zinc-50/70 border-zinc-200"
       )}
     >
       <div className="flex items-start justify-between gap-4">
@@ -461,7 +477,8 @@ function WarningsPanel({ warnings, theme }: { warnings?: ExplainOk["warnings"]; 
           <div
             className={cn(
               "w-9 h-9 rounded-full flex items-center justify-center",
-              theme === "dark" ? "bg-amber-500/10 text-amber-300" : "bg-amber-500/10 text-amber-700"
+              "ring-1 ring-inset",
+              theme === "dark" ? "bg-amber-500/10 text-amber-200 ring-amber-500/20" : "bg-amber-500/10 text-amber-800 ring-amber-500/20"
             )}
           >
             <AlertCircle size={18} />
@@ -479,8 +496,8 @@ function WarningsPanel({ warnings, theme }: { warnings?: ExplainOk["warnings"]; 
 
         <span
           className={cn(
-            "text-[10px] font-bold uppercase tracking-[0.24em] px-3 py-1.5 rounded-full border",
-            theme === "dark" ? "border-white/10 text-white/70" : "border-zinc-200 text-zinc-700"
+            "text-[10px] font-black uppercase tracking-[0.24em] px-3 py-1.5 rounded-full border",
+            theme === "dark" ? "border-white/10 text-white/70 bg-white/[0.02]" : "border-zinc-200 text-zinc-700 bg-white"
           )}
         >
           non-blocking
@@ -491,10 +508,7 @@ function WarningsPanel({ warnings, theme }: { warnings?: ExplainOk["warnings"]; 
         {cats.slice(0, 10).map((c) => (
           <div
             key={c.key}
-            className={cn(
-              "rounded-2xl border p-4",
-              theme === "dark" ? "border-white/10 bg-white/[0.02]" : "border-zinc-200 bg-white"
-            )}
+            className={cn("rounded-2xl border p-4", "transition-colors", theme === "dark" ? "border-white/10 bg-white/[0.02]" : "border-zinc-200 bg-white")}
           >
             <div className="flex items-center justify-between gap-4">
               <p className="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100">{c.label}</p>
@@ -525,8 +539,7 @@ function WarningsPanel({ warnings, theme }: { warnings?: ExplainOk["warnings"]; 
       </div>
 
       <p className="mt-4 text-[11px] text-zinc-500 dark:text-zinc-400">
-        These are automatic checks for possible data issues (format, scale, arithmetic). They can reduce confidence in
-        trend conclusions.
+        These are automatic checks for possible data issues (format, scale, arithmetic). They can reduce confidence in trend conclusions.
       </p>
     </div>
   );
@@ -545,7 +558,8 @@ function DetectedSheet({ meta, theme }: { meta?: ExplainMeta; theme: Theme }) {
       className={cn(
         "mb-6 print:hidden",
         "inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5",
-        theme === "dark" ? "bg-white/[0.02] border-white/10 text-white/80" : "bg-zinc-50 border-zinc-200 text-zinc-800"
+        "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.20)]",
+        theme === "dark" ? "bg-white/[0.02] border-white/10 text-white/80" : "bg-white/70 border-zinc-200 text-zinc-800"
       )}
       title={allSheets.length ? `Sheets: ${allSheets.join(", ")}` : undefined}
     >
@@ -572,7 +586,8 @@ function FileChip({ file, theme, onRemove }: { file: File; theme: Theme; onRemov
     <div
       className={cn(
         "inline-flex items-center gap-2 rounded-full border px-3 py-1.5",
-        theme === "dark" ? "bg-white/[0.03] border-white/10 text-white/80" : "bg-zinc-50 border-zinc-200 text-zinc-800"
+        "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.20)]",
+        theme === "dark" ? "bg-white/[0.03] border-white/10 text-white/85" : "bg-white/75 border-zinc-200 text-zinc-800"
       )}
       title={file.name}
     >
@@ -594,8 +609,8 @@ function FileChip({ file, theme, onRemove }: { file: File; theme: Theme; onRemov
         aria-label="Remove file"
         className={cn(
           "ml-1 inline-flex items-center justify-center rounded-full h-6 w-6 transition-all active:scale-[0.98]",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-          theme === "dark" ? "hover:bg-rose-500/10 text-rose-300/90" : "hover:bg-rose-500/10 text-rose-600/90"
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+          theme === "dark" ? "hover:bg-rose-500/10 text-rose-200/90" : "hover:bg-rose-500/10 text-rose-600/90"
         )}
       >
         <X size={14} />
@@ -603,6 +618,247 @@ function FileChip({ file, theme, onRemove }: { file: File; theme: Theme; onRemov
     </div>
   );
 }
+
+/** ✅ Privacy modal content (minimal + premium, no external file) */
+function PrivacyModalContent({ theme }: { theme: Theme }) {
+  return (
+    <div className="space-y-8">
+      {/* Hero section with gradient emphasis */}
+      <div className="space-y-3">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border backdrop-blur-sm animate-in fade-in slide-in-from-top-2 duration-500"
+          style={{
+            background: theme === "dark" 
+              ? "linear-gradient(135deg, rgba(59,130,246,0.08), rgba(16,185,129,0.08))"
+              : "linear-gradient(135deg, rgba(59,130,246,0.06), rgba(16,185,129,0.06))",
+            borderColor: theme === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"
+          }}
+        >
+          <span className={cn(
+            "h-1.5 w-1.5 rounded-full animate-pulse",
+            theme === "dark" ? "bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.5)]" : "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]"
+          )} />
+          <span className="text-[9px] font-black uppercase tracking-[0.32em] bg-gradient-to-r from-blue-600 to-emerald-600 dark:from-blue-400 dark:to-emerald-400 bg-clip-text text-transparent">
+            Zero Retention
+          </span>
+        </div>
+
+        <h2 className={cn(
+          "text-[28px] md:text-[32px] font-[950] tracking-[-0.04em] leading-[1.1]",
+          "animate-in fade-in slide-in-from-top-3 duration-700"
+        )}
+        style={{animationDelay: '100ms'}}
+        >
+          <span className={cn("inline", theme === "dark" ? "text-white" : "text-black")}>
+  Privacy.
+</span>
+{" "}
+          <span className="inline text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-500 bg-[length:200%_auto]">
+            Built in.
+          </span>
+        </h2>
+
+        <p className={cn(
+          "text-[15px] md:text-[16px] font-medium leading-[1.7] tracking-[-0.015em]",
+          "animate-in fade-in slide-in-from-top-4 duration-700",
+          theme === "dark" ? "text-white/70" : "text-zinc-600"
+        )}
+        style={{animationDelay: '200ms'}}
+        >
+          Designed for trust — without compromise.
+        </p>
+      </div>
+
+      {/* Key message with emphasis */}
+      <div className={cn(
+        "rounded-[1.75rem] border p-6 md:p-7 relative overflow-hidden",
+        "animate-in fade-in zoom-in-95 duration-700",
+        "transition-all duration-300 hover:shadow-lg",
+        theme === "dark" 
+          ? "bg-gradient-to-br from-white/[0.03] to-white/[0.01] border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.3)]" 
+          : "bg-gradient-to-br from-blue-50/40 to-emerald-50/30 border-blue-200/40 shadow-[0_20px_50px_rgba(59,130,246,0.08)]"
+      )}
+      style={{animationDelay: '300ms'}}
+      >
+        {/* Subtle gradient overlay */}
+        <div className="absolute inset-0 opacity-40 pointer-events-none"
+          style={{
+            background: theme === "dark"
+              ? "radial-gradient(600px circle at 30% 20%, rgba(59,130,246,0.08), transparent 60%)"
+              : "radial-gradient(600px circle at 30% 20%, rgba(59,130,246,0.12), transparent 60%)"
+          }}
+        />
+
+        <div className="relative space-y-4">
+          <div className="flex items-start gap-3">
+            <div className={cn(
+              "mt-1 flex-shrink-0 w-10 h-10 rounded-2xl flex items-center justify-center transition-transform duration-300 hover:scale-110 hover:rotate-12",
+              theme === "dark" ? "bg-blue-500/10 text-blue-300" : "bg-blue-500/10 text-blue-700"
+            )}>
+              <Shield size={18} />
+            </div>
+            
+            <div className="space-y-2">
+              <p className={cn(
+                "text-[15px] md:text-[16px] leading-[1.75] font-medium tracking-[-0.015em]",
+                theme === "dark" ? "text-white/90" : "text-zinc-800"
+              )}>
+                Your data is processed securely, then <span className="font-bold">immediately discarded</span>.
+              </p>
+              
+              <p className={cn(
+                "text-[14px] leading-[1.7] font-medium tracking-[-0.01em]",
+                theme === "dark" ? "text-white/75" : "text-zinc-700"
+              )}>
+                We don't store uploads, pasted text, results, or derived insights.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Feature grid with icons */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-700"
+        style={{animationDelay: '400ms'}}
+      >
+        {[
+          {
+            icon: "🔒",
+            label: "In-memory processing",
+            desc: "Files are handled in session only",
+            color: "blue"
+          },
+          {
+            icon: "🚫",
+            label: "No retention",
+            desc: "No databases, no history",
+            color: "emerald"
+          },
+          {
+            icon: "🤖",
+            label: "No training",
+            desc: "Data not used for training",
+            color: "violet"
+          },
+          {
+            icon: "💎",
+            label: "No resale",
+            desc: "Your data stays yours",
+            color: "rose"
+          }
+        ].map((item, idx) => (
+          <div
+            key={item.label}
+            className={cn(
+              "group rounded-2xl border p-5 transition-all duration-300 hover:scale-[1.02] hover:shadow-md cursor-default",
+              "animate-in fade-in slide-in-from-bottom-2",
+              theme === "dark" 
+                ? "bg-white/[0.02] border-white/10 hover:bg-white/[0.04]" 
+                : "bg-white/60 border-zinc-200 hover:bg-white"
+            )}
+            style={{animationDelay: `${450 + idx * 50}ms`}}
+          >
+            <div className="flex items-start gap-3">
+              <div className={cn(
+                "text-2xl flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110",
+                theme === "dark" ? "bg-white/5" : "bg-zinc-100/70"
+              )}>
+                {item.icon}
+              </div>
+              
+              <div className="space-y-1 min-w-0">
+                <p className={cn(
+                  "text-[14px] font-bold tracking-[-0.015em]",
+                  theme === "dark" ? "text-white/95" : "text-zinc-900"
+                )}>
+                  {item.label}
+                </p>
+                <p className={cn(
+                  "text-[13px] leading-[1.6] font-medium tracking-[-0.01em]",
+                  theme === "dark" ? "text-white/60" : "text-zinc-600"
+                )}>
+                  {item.desc}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Detailed guarantees */}
+      <div className={cn(
+        "rounded-2xl border p-5 md:p-6 space-y-4",
+        "animate-in fade-in slide-in-from-bottom-3 duration-700",
+        theme === "dark" ? "bg-white/[0.015] border-white/8" : "bg-zinc-50/50 border-zinc-200/70"
+      )}
+      style={{animationDelay: '600ms'}}
+      >
+        <div className="flex items-center gap-2">
+          <span className={cn(
+            "h-1 w-1 rounded-full",
+            theme === "dark" ? "bg-blue-400/60" : "bg-blue-600/50"
+          )} />
+          <h3 className={cn(
+            "text-[11px] font-black uppercase tracking-[0.28em]",
+            "bg-gradient-to-r from-blue-600 to-emerald-600 dark:from-blue-400 dark:to-emerald-400 bg-clip-text text-transparent"
+          )}>
+            Our Commitments
+          </h3>
+        </div>
+
+        <ul className={cn(
+          "space-y-3.5 text-[13px] md:text-[14px] leading-[1.7] font-medium tracking-[-0.01em]",
+          theme === "dark" ? "text-white/75" : "text-zinc-700"
+        )}>
+          {[
+            "Session-only processing — your data never touches persistent storage",
+            "Automatic cleanup — all traces removed when you close this page",
+            "No model training — we never use your data to improve our models",
+            "No third-party sharing — your information stays completely private",
+            "No analytics tracking — we don’t track the contents of what you analyze "
+          ].map((text, i) => (
+            <li key={i} className="flex gap-3 group">
+              <span className={cn(
+                "mt-[7px] h-1.5 w-1.5 rounded-full flex-shrink-0 transition-all duration-300 group-hover:scale-125",
+                theme === "dark" 
+                  ? "bg-gradient-to-r from-blue-400 to-emerald-400 shadow-[0_0_8px_rgba(59,130,246,0.4)]" 
+                  : "bg-gradient-to-r from-blue-500 to-emerald-500 shadow-[0_0_8px_rgba(59,130,246,0.3)]"
+              )} />
+              <span className="transition-colors duration-300 group-hover:text-current">{text}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Final reassurance */}
+      <div className={cn(
+        "flex items-start gap-3 p-4 rounded-2xl border",
+        "animate-in fade-in slide-in-from-bottom-2 duration-700",
+        theme === "dark" 
+          ? "bg-emerald-500/[0.03] border-emerald-500/15" 
+          : "bg-emerald-50/50 border-emerald-200/50"
+      )}
+      style={{animationDelay: '700ms'}}
+      >
+        <span className="text-xl mt-0.5">✓</span>
+        <div>
+          <p className={cn(
+            "text-[13px] md:text-[14px] leading-[1.7] font-semibold tracking-[-0.01em]",
+            theme === "dark" ? "text-emerald-200" : "text-emerald-900"
+          )}>
+            When you leave, the session is cleared.
+          </p>
+          <p className={cn(
+            "text-[12px] md:text-[13px] leading-[1.7] font-medium mt-1",
+            theme === "dark" ? "text-emerald-300/70" : "text-emerald-800/70"
+          )}>
+            Your data stays yours. Always.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 export default function HomePage() {
   const [theme, setTheme] = useState<Theme>("light");
@@ -635,11 +891,110 @@ export default function HomePage() {
   const hasResult = !!result;
   const inputChangedSinceRun = text.trim() !== lastRunInput.trim();
 
-
-  
   // ✅ IMPORTANT: we no longer use this to disable the button.
   // We only use it to decide if explain() should run or show a message.
   const canExplain = !loading && !overLimit && (hasFile || (hasText && (!hasResult || inputChangedSinceRun)));
+
+  /** -------------------------------
+   * ✅ Smooth modal open/close state machine
+   * - avoids "snap" on close by keeping DOM mounted during exit animation
+   * - locks scroll
+   * - closes on Esc
+   * - focus goes into modal on open
+   * -------------------------------- */
+  const [privacyOpen, setPrivacyOpen] = useState(false); // desired state
+  const [privacyMounted, setPrivacyMounted] = useState(false); // actually in DOM
+  const [privacyPhase, setPrivacyPhase] = useState<"enter" | "open" | "exit">("enter");
+
+  const privacyPanelRef = useRef<HTMLDivElement | null>(null);
+  const lastActiveElementRef = useRef<HTMLElement | null>(null);
+
+  const openPrivacy = () => setPrivacyOpen(true);
+  const closePrivacy = () => setPrivacyOpen(false);
+
+  // mount/unmount with exit duration
+  useEffect(() => {
+    const EXIT_MS = 260; // keep in sync with CSS duration below
+
+    if (privacyOpen) {
+      lastActiveElementRef.current = (document.activeElement as HTMLElement) ?? null;
+      setPrivacyMounted(true);
+      // allow next paint before toggling enter→open for buttery transitions
+      requestAnimationFrame(() => {
+        setPrivacyPhase("enter");
+        requestAnimationFrame(() => setPrivacyPhase("open"));
+      });
+      return;
+    }
+
+    // closing
+    if (privacyMounted) {
+      setPrivacyPhase("exit");
+      const t = window.setTimeout(() => {
+        setPrivacyMounted(false);
+        setPrivacyPhase("enter");
+        // restore focus
+        lastActiveElementRef.current?.focus?.();
+      }, EXIT_MS);
+      return () => window.clearTimeout(t);
+    }
+  }, [privacyOpen, privacyMounted]);
+
+  // scroll lock while mounted
+  useEffect(() => {
+    if (!privacyMounted) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [privacyMounted]);
+
+  // close on Esc while mounted
+  useEffect(() => {
+    if (!privacyMounted) return;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closePrivacy();
+      // tiny focus trap (Tab stays inside modal) — lightweight, no deps
+      if (e.key === "Tab") {
+        const root = privacyPanelRef.current;
+        if (!root) return;
+        const focusables = Array.from(
+          root.querySelectorAll<HTMLElement>(
+            'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((el) => !el.hasAttribute("disabled") && !el.getAttribute("aria-hidden"));
+
+        if (focusables.length === 0) {
+          e.preventDefault();
+          return;
+        }
+
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+
+        if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        } else if (e.shiftKey && active === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [privacyMounted]);
+
+  // focus into modal after open
+  useEffect(() => {
+    if (!privacyMounted) return;
+    // focus the close button or panel
+    window.setTimeout(() => privacyPanelRef.current?.focus?.(), 0);
+  }, [privacyMounted]);
 
   useEffect(() => {
     const saved = localStorage.getItem("emn_theme") as Theme | null;
@@ -945,13 +1300,32 @@ export default function HomePage() {
         <div className="absolute inset-0 opacity-[0.06] dark:opacity-[0.08]">
           <div className="h-full w-full bg-[radial-gradient(circle_at_1px_1px,rgba(120,120,120,0.5)_1px,transparent_0)] [background-size:24px_24px]" />
         </div>
+        <div
+          className={cn(
+            "absolute inset-0",
+            theme === "dark"
+              ? "bg-[radial-gradient(1200px_circle_at_50%_-20%,rgba(59,130,246,0.14),transparent_60%),radial-gradient(1000px_circle_at_90%_120%,rgba(16,185,129,0.12),transparent_55%)]"
+              : "bg-[radial-gradient(1200px_circle_at_50%_-20%,rgba(59,130,246,0.12),transparent_60%),radial-gradient(1000px_circle_at_90%_120%,rgba(16,185,129,0.10),transparent_55%)]"
+          )}
+        />
       </div>
 
-      <nav className="sticky top-0 z-[60] backdrop-blur-2xl ">
+      <nav className="sticky top-0 z-[60] backdrop-blur-2xl">
         <div className="max-w-7xl mx-auto px-4 md:px-8 h-12 md:h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5 select-none">
-            <span className="font-bold tracking-[-0.03em] text-[15px] md:text-base">
-              Explain My Numbers <span className="font-semibold opacity-55 tracking-normal">2.0</span>
+            <div
+              className={cn(
+                "h-8 w-8 rounded-2xl grid place-items-center",
+                theme === "dark" ? "bg-white/[0.05] border border-white/10" : "bg-white/80 border border-zinc-200 shadow-[0_10px_30px_rgba(0,0,0,0.06)]"
+              )}
+              aria-hidden="true"
+            >
+              <BarChart3 size={16} className={cn(theme === "dark" ? "text-white/85" : "text-zinc-900")} />
+            </div>
+
+            <span className="font-black tracking-[-0.03em] text-[14px] md:text-[15px]">
+              Explain My Numbers{" "}
+              <span className="font-semibold opacity-55 tracking-[0.02em] text-[12px] md:text-[13px]">2.0</span>
             </span>
           </div>
 
@@ -960,8 +1334,9 @@ export default function HomePage() {
             onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
             className={cn(
               "p-2 rounded-full transition-all active:scale-[0.98]",
-              "hover:bg-zinc-200/60 dark:hover:bg-white/5",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+              "hover:bg-zinc-200/60 dark:hover:bg-white/6",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+              "shadow-[0_1px_0_rgba(255,255,255,0.18)] dark:shadow-[0_1px_0_rgba(255,255,255,0.06)]"
             )}
             title="Toggle theme"
             aria-label="Toggle theme"
@@ -973,25 +1348,34 @@ export default function HomePage() {
 
       <main className="relative max-w-5xl mx-auto px-4 md:px-8 py-4 md:py-6 print:p-0">
         <header className="mb-4 md:mb-6 space-y-2 md:space-y-4 print:hidden">
-          <h1 className="text-5xl md:text-[5rem] font-[900] tracking-[-0.06em] leading-[0.85] md:leading-[0.8]">
-            <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Numbers</span>{" "}
-            <span className="inline pb-[0.1em] md:pb-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-400 bg-[length:200%_auto] animate-shimmer-text">
-              speak.
-            </span>
-          </h1>
-
-          <br />
+          <div className="space-y-3">
+            <h1 className="text-5xl md:text-[5rem] font-[950] tracking-[-0.065em] leading-[0.86] md:leading-[0.80]">
+              <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Data.</span>{" "}
+              <span className="inline pb-[0.1em] md:pb-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-400 bg-[length:200%_auto] animate-shimmer-text">
+                Narrated.
+              </span>
+            </h1>
+          </div>
         </header>
 
         {/* Input card */}
         <div
           className={cn(
             "group relative rounded-[2.5rem] border transition-all duration-500 print:hidden overflow-hidden",
-            theme === "dark"
-              ? "bg-white/[0.03] border-white/10 shadow-[0_30px_90px_rgba(0,0,0,0.45)]"
-              : "bg-white border-zinc-200 shadow-[0_30px_90px_rgba(0,0,0,0.10)]"
+            "shadow-[0_24px_80px_rgba(0,0,0,0.10)] dark:shadow-[0_34px_110px_rgba(0,0,0,0.55)]",
+            theme === "dark" ? "bg-white/[0.03] border-white/10" : "bg-white/85 border-zinc-200"
           )}
         >
+          {/* subtle inner highlight */}
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-700",
+              theme === "dark"
+                ? "bg-[radial-gradient(900px_circle_at_20%_0%,rgba(255,255,255,0.08),transparent_55%)]"
+                : "bg-[radial-gradient(900px_circle_at_20%_0%,rgba(59,130,246,0.10),transparent_55%)]"
+            )}
+          />
+
           {/* DESKTOP HEADER ACTION BAR */}
           <div className="hidden md:flex items-center justify-between gap-4 p-6 border-b border-zinc-200/100 dark:border-white/5">
             <div className="flex items-center gap-3">
@@ -1001,11 +1385,12 @@ export default function HomePage() {
                     "emn-upload",
                     "inline-flex items-center gap-2 px-4 py-2 rounded-2xl cursor-pointer select-none",
                     "text-[13px] font-semibold tracking-[-0.01em]",
-                    "transition-colors duration-200",
-                    "focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:ring-offset-2 focus-within:ring-offset-transparent",
+                    "transition-all duration-200 active:scale-[0.99]",
+                    "focus-within:ring-2 focus-within:ring-blue-500/40 focus-within:ring-offset-2 focus-within:ring-offset-transparent",
+                    "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.20)]",
                     theme === "dark"
                       ? "bg-white/10 text-zinc-200 border border-white/10"
-                      : "bg-zinc-100 text-zinc-900 border border-zinc-200 hover:bg-black hover:text-white hover:border-transparent"
+                      : "bg-zinc-100/80 text-zinc-900 border border-zinc-200 hover:bg-black hover:text-white hover:border-transparent"
                   )}
                 >
                   <Upload size={14} />
@@ -1017,7 +1402,10 @@ export default function HomePage() {
                   {["Excel", "txt", "csv", "tsv"].map((t) => (
                     <span
                       key={t}
-                      className={cn("text-[9px] font-medium  tracking-[0.26em]", theme === "dark" ? "text-white/75" : "text-zinc-500")}
+                      className={cn(
+                        "text-[9px] font-bold tracking-[0.26em] uppercase",
+                        theme === "dark" ? "text-white/55" : "text-zinc-500"
+                      )}
                     >
                       {t}
                     </span>
@@ -1041,20 +1429,21 @@ export default function HomePage() {
                   "inline-flex items-center gap-2 px-4 py-2 rounded-2xl select-none",
                   "text-[13px] font-semibold tracking-[-0.01em]",
                   "transition-all duration-200 active:scale-[0.99]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
                   "cursor-pointer",
+                  "shadow-[0_18px_60px_rgba(0,0,0,0.12)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)]",
                   overLimit
                     ? "bg-rose-600 text-white border border-rose-500/30"
                     : theme === "dark"
-                    ? "bg-white text-black border-transparent shadow-[0_18px_60px_rgba(255,255,255,0.10)]"
-                    : "bg-black text-white border-transparent shadow-[0_18px_60px_rgba(0,0,0,0.18)]"
+                    ? "bg-white text-black border-transparent"
+                    : "bg-black text-white border-transparent"
                 )}
                 title={overLimit ? `${charCount.toLocaleString()}/${MAX_INPUT_CHARS.toLocaleString()}` : undefined}
               >
                 {loading ? (
                   <>
-                    <Loader2 size={14} className="animate-spin" />
-                    <span className=" tracking-[0.12em] text-[11px] font-bold">Analysing…</span>
+                    <Loader2 size={14} className="animate-spin motion-reduce:animate-none" />
+                    <span className="tracking-[0.12em] text-[11px] font-black uppercase">Analysing…</span>
                   </>
                 ) : overLimit ? (
                   <>
@@ -1078,20 +1467,36 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* ✅ Inline “why it didn’t run” line (prevents confusion) */}
+          {/* ✅ Inline “why it didn’t run” line — now fades/animates elegantly */}
           {!!explainBlockReason && (
             <div className="px-6 md:px-10 pt-4 pb-1">
-              <p className="text-[12px] font-semibold tracking-[-0.01em] text-rose-600 dark:text-rose-300">
-                {explainBlockReason}
-              </p>
+              <div
+                className={cn(
+                  "emn-fade",
+                  "inline-flex items-center gap-2 rounded-2xl border px-3.5 py-2",
+                  "text-[12px] font-semibold tracking-[-0.01em]",
+                  theme === "dark" ? "bg-rose-500/8 border-rose-500/20 text-rose-200" : "bg-rose-500/6 border-rose-500/15 text-rose-700"
+                )}
+              >
+                <AlertCircle size={14} className="opacity-80" />
+                <span>{explainBlockReason}</span>
+              </div>
             </div>
           )}
 
           {hasFile && fileStatusLine && (
             <div className="px-6 md:px-10 pt-1 pb-1">
-              <p className="text-[12px] font-semibold tracking-[-0.01em] text-zinc-700 dark:text-white/70">
-                {fileStatusLine}
-              </p>
+              <div
+                className={cn(
+                  "emn-fade",
+                  "inline-flex items-center gap-2 rounded-2xl border px-3.5 py-2",
+                  "text-[12px] font-semibold tracking-[-0.01em]",
+                  theme === "dark" ? "bg-white/[0.02] border-white/10 text-white/70" : "bg-white/70 border-zinc-200 text-zinc-700"
+                )}
+              >
+                <span className={cn("h-1.5 w-1.5 rounded-full", theme === "dark" ? "bg-white/35" : "bg-zinc-400")} />
+                <span>{fileStatusLine}</span>
+              </div>
             </div>
           )}
 
@@ -1106,12 +1511,13 @@ export default function HomePage() {
             placeholder={textareaLocked ? "" : "Paste your data here…"}
             className={cn(
               "w-full bg-transparent outline-none resize-none",
-              "text-[14px] md:text-[15px] leading-relaxed font-medium tracking-[-0.01em]",
+              "text-[14px] md:text-[15px] leading-relaxed font-medium tracking-[-0.012em]",
               "placeholder:text-zinc-400 dark:placeholder:text-zinc-700",
               "h-[175px] md:h-[150px]",
               "p-6 pb-24 md:pt-10 md:pb-10 md:pl-10 md:pr-6",
               "overflow-y-auto emn-scroll",
               "focus-visible:outline-none",
+              "transition-[color,opacity] duration-200",
               textareaLocked && "cursor-not-allowed select-none opacity-70"
             )}
           />
@@ -1122,14 +1528,15 @@ export default function HomePage() {
               className={cn(
                 "flex items-center gap-2 p-2.5 border-t",
                 "rounded-none rounded-b-[2.5rem] backdrop-blur-2xl transition-all",
-                theme === "dark" ? "bg-white/[0.03] border-white/10" : "bg-white/65 border-zinc-200/60"
+                theme === "dark" ? "bg-white/[0.03] border-white/10" : "bg-white/70 border-zinc-200/60"
               )}
             >
               <label
                 className={cn(
                   "p-3 rounded-full border active:scale-[0.98] transition-all cursor-pointer",
-                  "focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:ring-offset-2 focus-within:ring-offset-transparent",
-                  theme === "dark" ? "bg-white/10 text-zinc-200 border border-white/10" : "bg-zinc-100 text-zinc-800"
+                  "focus-within:ring-2 focus-within:ring-blue-500/40 focus-within:ring-offset-2 focus-within:ring-offset-transparent",
+                  "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.22)]",
+                  theme === "dark" ? "bg-white/10 text-zinc-200 border border-white/10" : "bg-zinc-100/80 text-zinc-800"
                 )}
                 title="Upload"
                 aria-label="Upload"
@@ -1145,8 +1552,9 @@ export default function HomePage() {
                 className={cn(
                   "flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-full transition-all active:scale-[0.99]",
                   "text-[16px] font-semibold tracking-[-0.01em]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
                   "cursor-pointer",
+                  "shadow-[0_18px_60px_rgba(0,0,0,0.12)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)]",
                   overLimit
                     ? "bg-rose-600 text-white border border-rose-500/30"
                     : theme === "dark"
@@ -1156,7 +1564,7 @@ export default function HomePage() {
               >
                 {loading ? (
                   <span className="inline-flex items-center justify-center w-full">
-                    <Loader2 className="animate-spin" size={18} />
+                    <Loader2 className="animate-spin motion-reduce:animate-none" size={18} />
                   </span>
                 ) : overLimit ? (
                   <>
@@ -1177,8 +1585,9 @@ export default function HomePage() {
                 onClick={reset}
                 className={cn(
                   "p-3 rounded-full border active:scale-[0.98] transition-all cursor-pointer",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                  theme === "dark" ? "bg-white/10 text-zinc-200 border-white/10" : "bg-zinc-100 text-zinc-800 border-zinc-200"
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                  "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.22)]",
+                  theme === "dark" ? "bg-white/10 text-zinc-200 border-white/10" : "bg-zinc-100/80 text-zinc-800 border-zinc-200"
                 )}
                 title="Reset"
                 aria-label="Reset"
@@ -1201,9 +1610,8 @@ export default function HomePage() {
             <div
               className={cn(
                 "rounded-[2.5rem] p-6 md:p-12 border transition-all duration-500 print:border-none print:p-0 print:shadow-none",
-                theme === "dark"
-                  ? "bg-white/[0.02] border-white/8 shadow-[0_30px_90px_rgba(0,0,0,0.55)]"
-                  : "bg-white border-zinc-200 shadow-[0_30px_90px_rgba(0,0,0,0.10)]"
+                "shadow-[0_24px_80px_rgba(0,0,0,0.10)] dark:shadow-[0_34px_110px_rgba(0,0,0,0.55)]",
+                theme === "dark" ? "bg-white/[0.02] border-white/8" : "bg-white/85 border-zinc-200"
               )}
             >
               {loading ? (
@@ -1212,10 +1620,20 @@ export default function HomePage() {
                 <div>
                   <div className="flex justify-between items-center mb-10 print:mb-6">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center print:hidden shadow-[0_18px_60px_rgba(59,130,246,0.35)]">
+                      <div className="w-9 h-9 rounded-2xl bg-blue-500 flex items-center justify-center print:hidden shadow-[0_18px_60px_rgba(59,130,246,0.35)]">
                         <BarChart3 size={16} className="text-white" />
                       </div>
-                      <h3 className="text-[22px] md:text-2xl font-black italic tracking-[-0.02em]">Synthesis</h3>
+                      <h3 className="text-[22px] md:text-2xl font-black tracking-[-0.02em]">
+                        Synthesis
+                        <span
+                          className={cn(
+                            "ml-3 text-[10px] font-black uppercase tracking-[0.30em] align-middle",
+                            theme === "dark" ? "text-white/45" : "text-zinc-500"
+                          )}
+                        >
+                          output
+                        </span>
+                      </h3>
                     </div>
 
                     <ElegantPill level={evidence.level} />
@@ -1233,8 +1651,9 @@ export default function HomePage() {
                         "inline-flex items-center gap-2 px-5 py-3 rounded-2xl border",
                         "text-[13px] font-semibold tracking-[-0.01em]",
                         "transition-all duration-200 active:scale-[0.99]",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                        theme === "dark" ? "border-white/10 hover:bg-white/5 text-white/90" : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                        "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.20)]",
+                        theme === "dark" ? "border-white/10 hover:bg-white/6 text-white/90" : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
                       )}
                     >
                       {copied ? (
@@ -1253,10 +1672,9 @@ export default function HomePage() {
                         "inline-flex items-center gap-2 px-5 py-3 rounded-2xl",
                         "text-[13px] font-semibold tracking-[-0.01em]",
                         "transition-all duration-200 active:scale-[0.99]",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                        theme === "dark"
-                          ? "bg-white text-black hover:opacity-90 shadow-[0_18px_60px_rgba(255,255,255,0.10)]"
-                          : "bg-zinc-900 text-white hover:opacity-90 shadow-[0_18px_60px_rgba(0,0,0,0.18)]"
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                        "shadow-[0_18px_60px_rgba(0,0,0,0.12)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)]",
+                        theme === "dark" ? "bg-white text-black hover:opacity-90" : "bg-zinc-900 text-white hover:opacity-90"
                       )}
                       title="Print / Save as PDF"
                     >
@@ -1265,15 +1683,18 @@ export default function HomePage() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-start gap-4 p-8 rounded-[2rem] bg-rose-500/5 border border-rose-500/10 text-rose-600 dark:text-rose-300 animate-shake">
+                <div
+                  className={cn(
+                    "flex items-start gap-4 p-8 rounded-[2rem] border animate-shake",
+                    theme === "dark" ? "bg-rose-500/6 border-rose-500/20 text-rose-200" : "bg-rose-500/6 border-rose-500/15 text-rose-700"
+                  )}
+                >
                   <AlertCircle size={24} className="mt-0.5" />
                   <div>
                     <p className="font-semibold tracking-[-0.01em]">{errorUi?.msg ?? result?.error}</p>
-                    {errorUi?.hint && (
-                      <p className="mt-2 text-[12px] text-rose-600/80 dark:text-rose-300/80">{errorUi.hint}</p>
-                    )}
+                    {errorUi?.hint && <p className="mt-2 text-[12px] opacity-80">{errorUi.hint}</p>}
                     {result?.error_code && (
-                      <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.22em] opacity-60">
+                      <p className="mt-2 text-[10px] font-black uppercase tracking-[0.22em] opacity-60">
                         {result.error_code}
                         {lastHttpStatus ? ` • HTTP ${lastHttpStatus}` : ""}
                       </p>
@@ -1289,11 +1710,23 @@ export default function HomePage() {
       <footer className="w-full max-w-5xl mx-auto px-4 md:px-8 pb-2 mt-1 print:hidden">
         <div className="pt-3 flex flex-row justify-between items-center gap-3">
           <div className="flex items-center gap-6">
-            <p className="text-[10px] font-bold tracking-[0.26em] uppercase opacity-55">© 2026 Explain</p>
-            <div className="flex items-center gap-2 opacity-55">
+            <p className="text-[10px] font-black tracking-[0.26em] uppercase opacity-55">© 2026 Explain Ltd</p>
+
+            {/* ✅ Privacy link is now clickable + opens smooth modal */}
+            <button
+              type="button"
+              onClick={openPrivacy}
+              className={cn(
+                "flex items-center gap-2 opacity-55 transition-opacity",
+                "hover:opacity-90",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+              )}
+              aria-label="Open privacy notice"
+              title="Privacy"
+            >
               <Shield size={12} />
-              <span className="text-[10px] font-bold tracking-[0.26em] uppercase ">Privacy</span>
-            </div>
+              <span className="text-[10px] font-black tracking-[0.26em] uppercase">Privacy</span>
+            </button>
           </div>
 
           <a
@@ -1302,8 +1735,9 @@ export default function HomePage() {
             rel="noopener noreferrer"
             className={cn(
               "group p-2.5 rounded-xl transition-all",
-              "text-zinc-400 hover:text-blue-500",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+              theme === "dark" ? "text-white/55 hover:text-blue-300" : "text-zinc-400 hover:text-blue-500",
+              "hover:bg-black/5 dark:hover:bg-white/5",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
             )}
             title="X"
             aria-label="X"
@@ -1319,6 +1753,116 @@ export default function HomePage() {
         </div>
       </footer>
 
+      {/* ✅ Smooth Privacy Modal (mounted during exit) */}
+      {privacyMounted && (
+        <div className="fixed inset-0 z-[100] print:hidden">
+          {/* Backdrop */}
+          <div
+            aria-hidden="true"
+            onClick={closePrivacy}
+            className={cn(
+              "absolute inset-0",
+              "transition-[opacity,backdrop-filter] duration-[260ms] ease-out will-change-[opacity,backdrop-filter]",
+              privacyPhase === "open" ? "opacity-100 backdrop-blur-[10px]" : "opacity-0 backdrop-blur-0"
+            )}
+            style={{
+              background:
+                privacyPhase === "open"
+                  ? "radial-gradient(1200px circle at 50% 30%, rgba(0,0,0,0.55), rgba(0,0,0,0.78))"
+                  : "transparent",
+            }}
+          />
+
+          {/* Centering wrapper */}
+          <div className="absolute inset-0 flex items-center justify-center p-4 md:p-8">
+            {/* Panel */}
+            <div
+              ref={privacyPanelRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Privacy"
+              tabIndex={-1}
+              onClick={(e) => e.stopPropagation()}
+              className={cn(
+                "w-full max-w-2xl rounded-[2.5rem] border overflow-hidden",
+                "shadow-[0_34px_120px_rgba(0,0,0,0.55)]",
+                "transition-[transform,opacity] duration-[260ms] ease-out will-change-[transform,opacity]",
+                privacyPhase === "open" ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-3 scale-[0.985]",
+                theme === "dark" ? "bg-[#070707] border-white/10" : "bg-white border-zinc-200"
+              )}
+            >
+              <div
+                className={cn(
+                  "px-6 md:px-8 py-5 flex items-center justify-between border-b",
+                  theme === "dark" ? "border-white/10" : "border-zinc-200"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={cn(
+                      "h-9 w-9 rounded-2xl grid place-items-center border",
+                      theme === "dark" ? "bg-white/[0.04] border-white/10" : "bg-zinc-50 border-zinc-200"
+                    )}
+                    aria-hidden="true"
+                  >
+                    <Shield size={16} className={cn(theme === "dark" ? "text-white/85" : "text-zinc-900")} />
+                  </div>
+
+                  <div>
+                    <p className="text-[11px] font-black uppercase tracking-[0.28em] text-blue-600/80 dark:text-blue-400/80">
+                      Privacy
+                    </p>
+                    <p className={cn("text-[14px] font-semibold tracking-[-0.01em]", theme === "dark" ? "text-white/90" : "text-zinc-900")}>
+                      Notice
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closePrivacy}
+                  className={cn(
+                    "inline-flex items-center justify-center rounded-full h-10 w-10",
+                    "transition-all duration-200 active:scale-[0.98]",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                    theme === "dark" ? "hover:bg-white/5 text-white/70" : "hover:bg-zinc-100 text-zinc-700"
+                  )}
+                  aria-label="Close privacy modal"
+                  title="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="px-6 md:px-8 py-6 md:py-7 max-h-[70vh] overflow-y-auto emn-scroll">
+                <PrivacyModalContent theme={theme} />
+              </div>
+
+              <div
+                className={cn(
+                  "px-6 md:px-8 py-4 flex items-center justify-end gap-2 border-t",
+                  theme === "dark" ? "border-white/10" : "border-zinc-200"
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={closePrivacy}
+                  className={cn(
+                    "inline-flex items-center gap-2 px-4 py-2 rounded-2xl",
+                    "text-[13px] font-semibold tracking-[-0.01em]",
+                    "transition-all duration-200 active:scale-[0.99]",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                    theme === "dark" ? "bg-white text-black hover:opacity-90" : "bg-black text-white hover:opacity-90"
+                  )}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style jsx global>{`
         :root {
           color-scheme: light;
@@ -1327,13 +1871,30 @@ export default function HomePage() {
           color-scheme: dark;
         }
 
+        /* Micro-interaction: gentle fade/slide for inline status messages */
+        .emn-fade {
+          animation: emnFadeUp 260ms ease-out both;
+        }
+        @keyframes emnFadeUp {
+          from {
+            opacity: 0;
+            transform: translateY(6px);
+            filter: blur(0.6px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+            filter: blur(0);
+          }
+        }
+
         @media (hover: hover) and (pointer: fine) {
           html.dark .emn-reset:hover {
-            background: #ffffff !important;
+            background: rgba(255, 255, 255, 0.92) !important;
             color: #000000 !important;
           }
           html.dark .emn-upload:hover {
-            background: #ffffff !important;
+            background: rgba(255, 255, 255, 0.92) !important;
             color: #000000 !important;
             border-color: transparent !important;
             box-shadow: 0 18px 60px rgba(255, 255, 255, 0.12) !important;
@@ -1347,12 +1908,14 @@ export default function HomePage() {
           text-rendering: optimizeLegibility;
           -webkit-font-smoothing: antialiased;
           -moz-osx-font-smoothing: grayscale;
+          letter-spacing: -0.01em;
         }
 
         ::selection {
-          background: rgba(59, 130, 246, 0.25);
+          background: rgba(59, 130, 246, 0.22);
         }
 
+        /* Premium shimmer */
         .animate-shimmer-text {
           animation: shimmer-text 6s linear infinite;
         }
@@ -1383,7 +1946,8 @@ export default function HomePage() {
           .animate-shake,
           .animate-pulse,
           .animate-spin,
-          .animate-ping {
+          .animate-ping,
+          .emn-fade {
             animation: none !important;
           }
           html:focus-within {
