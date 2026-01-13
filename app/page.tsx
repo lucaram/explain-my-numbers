@@ -441,11 +441,7 @@ function IconButton({
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
         tone === "danger"
           ? "text-rose-500/80 hover:text-rose-500 hover:bg-rose-500/10"
-          : cn(
-              "text-zinc-500 dark:text-zinc-400",
-              "hover:bg-black hover:text-white",
-              "dark:hover:bg-white/5 dark:hover:text-white"
-            ),
+          : cn("text-zinc-500 dark:text-zinc-400", "hover:bg-black hover:text-white", "dark:hover:bg-white/5 dark:hover:text-white"),
         className
       )}
     >
@@ -552,8 +548,7 @@ function WarningsPanel({ warnings, theme }: { warnings?: ExplainOk["warnings"]; 
       </div>
 
       <p className="mt-4 text-[11px] text-zinc-500 dark:text-zinc-400">
-        These are automatic checks for possible data issues (format, scale, arithmetic). They can reduce confidence in
-        trend conclusions.
+        These are automatic checks for possible data issues (format, scale, arithmetic). They can reduce confidence in trend conclusions.
       </p>
     </div>
   );
@@ -577,9 +572,7 @@ function DetectedSheet({ meta, theme }: { meta?: ExplainMeta; theme: Theme }) {
       )}
       title={allSheets.length ? `Sheets: ${allSheets.join(", ")}` : undefined}
     >
-      <span className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-600/80 dark:text-blue-400/80">
-        Detected sheet
-      </span>
+      <span className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-600/80 dark:text-blue-400/80">Detected sheet</span>
       <span className="text-[11px] font-semibold tracking-[-0.01em]">
         {chosen}
         <span className="opacity-60">{scoreText}</span>
@@ -672,8 +665,12 @@ export default function HomePage() {
   // ✅ If user is in paste mode (no file), track whether text changed since last run.
   const inputChangedSinceRun = text.trim() !== lastRunInput.trim();
 
-  // ✅ Enable when either pasted text OR a file exists
-  const canExplain = !loading && !overLimit && (hasFile || (hasText && (!hasResult || inputChangedSinceRun)));
+  /**
+   * ✅ FIX:
+   * The button should NOT become disabled just because the input hasn't changed.
+   * If there's valid text (or a file), you can always run again.
+   */
+  const canExplain = !loading && !overLimit && (hasFile || hasText);
 
   useEffect(() => {
     const saved = localStorage.getItem("emn_theme") as Theme | null;
@@ -883,7 +880,7 @@ export default function HomePage() {
 
       setResult(data);
 
-      // In paste-mode, this supports "Edit input to rerun"
+      // In paste-mode, this supports "Edit input to rerun" labeling
       setLastRunInput(text);
 
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
@@ -969,7 +966,7 @@ export default function HomePage() {
     return result.meta;
   }, [result]);
 
-  // For the button label: treat "file present" as a valid input even if textarea unchanged
+  // ✅ For the button label only (keep your "Edit" UX)
   const showEditToRerun = !hasFile && hasResult && !inputChangedSinceRun;
 
   // ✅ Lock textarea whenever file is present (critical)
@@ -1072,10 +1069,7 @@ export default function HomePage() {
                   {["Excel", "txt", "csv", "tsv"].map((t) => (
                     <span
                       key={t}
-                      className={cn(
-                        "text-[9px] font-medium  tracking-[0.26em]",
-                        theme === "dark" ? "text-white/75" : "text-zinc-500"
-                      )}
+                      className={cn("text-[9px] font-medium  tracking-[0.26em]", theme === "dark" ? "text-white/75" : "text-zinc-500")}
                     >
                       {t}
                     </span>
@@ -1141,9 +1135,7 @@ export default function HomePage() {
           {/* ✅ Inline status line (no banner). Only shows when file is selected. */}
           {hasFile && fileStatusLine && (
             <div className="px-6 md:px-10 pt-4 pb-1">
-              <p className="text-[12px] font-semibold tracking-[-0.01em] text-zinc-700 dark:text-white/70">
-                {fileStatusLine}
-              </p>
+              <p className="text-[12px] font-semibold tracking-[-0.01em] text-zinc-700 dark:text-white/70">{fileStatusLine}</p>
             </div>
           )}
 
@@ -1296,9 +1288,7 @@ export default function HomePage() {
                         "text-[13px] font-semibold tracking-[-0.01em]",
                         "transition-all duration-200 active:scale-[0.99]",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                        theme === "dark"
-                          ? "border-white/10 hover:bg-white/5 text-white/90"
-                          : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
+                        theme === "dark" ? "border-white/10 hover:bg-white/5 text-white/90" : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
                       )}
                     >
                       {copied ? (
@@ -1333,9 +1323,7 @@ export default function HomePage() {
                   <AlertCircle size={24} className="mt-0.5" />
                   <div>
                     <p className="font-semibold tracking-[-0.01em]">{errorUi?.msg ?? result?.error}</p>
-                    {errorUi?.hint && (
-                      <p className="mt-2 text-[12px] text-rose-600/80 dark:text-rose-300/80">{errorUi.hint}</p>
-                    )}
+                    {errorUi?.hint && <p className="mt-2 text-[12px] text-rose-600/80 dark:text-rose-300/80">{errorUi.hint}</p>}
                     {result?.error_code && (
                       <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.22em] opacity-60">
                         {result.error_code}
