@@ -78,6 +78,14 @@ function enforceSameSite(req: Request) {
   const origin = normalizeOriginValue((req.headers.get("origin") ?? "").trim());
   const referer = (req.headers.get("referer") ?? "").trim();
 
+  // ✅ NEW: if allowlist is configured, require browser context
+  if (!origin && !referer) {
+    throw Object.assign(new Error("Forbidden request context."), {
+      code: "FORBIDDEN_ORIGIN" as ApiErrorCode,
+      status: 403,
+    });
+  }
+
   if (origin && !allowed.has(origin)) {
     throw Object.assign(new Error("Forbidden origin."), {
       code: "FORBIDDEN_ORIGIN" as ApiErrorCode,
@@ -95,7 +103,6 @@ function enforceSameSite(req: Request) {
     }
   }
 }
-
 
 
 /**
