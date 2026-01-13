@@ -157,6 +157,8 @@ function assertPasteSize(s: string) {
  * Rate limiting helpers
  * -------------------------- */
 
+
+
 function getClientIp(req: Request) {
   const xf = req.headers.get("x-forwarded-for");
   if (xf) return xf.split(",")[0].trim();
@@ -179,6 +181,12 @@ async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
   const retryAfterSec = Math.max(1, Math.ceil((res.reset - Date.now()) / 1000));
   return { ok: false, retryAfterSec };
 }
+
+function hashGateTokenKey(token: string) {
+  // non-reversible, stable, short key for Redis
+  return createHash("sha256").update(token).digest("hex").slice(0, 24);
+}
+
 
 /** --------------------------
  * Server gate token (matches /api/gate)
@@ -1918,25 +1926,46 @@ export async function POST(req: Request) {
 
   const client = new OpenAI({ apiKey });
 
-  const redis = Redis.fromEnv();
-  const ratelimit = new Ratelimit({
+    const redis = Redis.fromEnv();
+
+  // IP limiter (keeps your current behavior)
+  const ipRatelimit = new Ratelimit({
     redis,
     limiter: Ratelimit.slidingWindow(30, "60 s"),
     analytics: false,
-    prefix: "emn:rl",
+    prefix: "emn:rl:ip",
+  });
+
+  // Gate-token limiter (new)
+  // This caps bursts from a single minted gate token (even if they spam fast)
+  const gateRatelimit = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(10, "60 s"),
+    analytics: false,
+    prefix: "emn:rl:gate",
   });
 
   const ip = getClientIp(req);
 
-  // HIGH: make rate-limit key IP-only (UA rotation bypass)
-  const identifier = `ip:${ip}`;
-
-  const rl = await applyRateLimit(ratelimit, identifier);
-  if (!rl.ok) {
-    const retry = rl.retryAfterSec ?? 60;
+  // 1) Apply IP rate limit
+  const ipKey = `ip:${ip}`;
+  const rlIp = await applyRateLimit(ipRatelimit, ipKey);
+  if (!rlIp.ok) {
+    const retry = rlIp.retryAfterSec ?? 60;
     const msg = `Too many requests. Please retry in ~${retry}s.`;
     return jsonErrorReq(req, "RATE_LIMITED", msg, 429, { "Retry-After": String(retry) });
   }
+
+  // 2) Apply gate-token rate limit (hash the token; never store raw)
+  const gate = (req.headers.get("x-emn-gate") ?? "").trim();
+  const gateKey = `gate:${hashGateTokenKey(gate)}`;
+  const rlGate = await applyRateLimit(gateRatelimit, gateKey);
+  if (!rlGate.ok) {
+    const retry = rlGate.retryAfterSec ?? 60;
+    const msg = `Too many requests. Please retry in ~${retry}s.`;
+    return jsonErrorReq(req, "RATE_LIMITED", msg, 429, { "Retry-After": String(retry) });
+  }
+
 
   try {
     // HIGH: prevent cross-site quota theft (browser-origin allowlist)

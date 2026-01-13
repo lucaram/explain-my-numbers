@@ -284,7 +284,7 @@ export async function POST(req: Request) {
     {
       ok: true,
       gate_token: gateToken,
-      expires_in_sec: windowSec, // client can just refresh occasionally
+      expires_in_s: windowSec,
       meta: { v: 1, window },
     },
     { status: 200 }
