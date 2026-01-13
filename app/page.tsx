@@ -55,7 +55,7 @@ type ExplainOk = {
 type ExplainErr = {
   ok: false;
   error: string;
-  error_code?: string; // added by backend
+  error_code?: string;
 };
 
 type ExplainResult = ExplainOk | ExplainErr;
@@ -77,7 +77,7 @@ type GateResponse = GateResponseOk | GateResponseErr;
 
 const GATE_HEADER = "X-EMN-Gate";
 const GATE_CACHE_KEY = "emn_gate_cache_v1";
-const DEFAULT_GATE_TTL_MS = 5 * 60 * 1000; // fallback if expires_in_s isn't provided
+const DEFAULT_GATE_TTL_MS = 5 * 60 * 1000;
 
 function nowMs() {
   return Date.now();
@@ -96,7 +96,7 @@ function readGateFromSession(): { token: string; expMs: number } | null {
   if (typeof window === "undefined") return null;
   const parsed = safeJsonParse<{ token: string; expMs: number }>(sessionStorage.getItem(GATE_CACHE_KEY));
   if (!parsed?.token || !parsed?.expMs) return null;
-  if (parsed.expMs <= nowMs() + 5_000) return null; // 5s skew
+  if (parsed.expMs <= nowMs() + 5_000) return null;
   return parsed;
 }
 
@@ -110,23 +110,15 @@ function writeGateToSession(token: string, expMs: number) {
 }
 
 /**
- * Evidence strength parser (bulletproof):
- * supports:
- * - "Evidence strength: High – reason"
- * - "Evidence strength:\nHigh – reason"
- * - extra blank lines
- * - any dash style (-, –, —)
- * - case variations ("Evidence Strength", etc.)
+ * Evidence strength parser (bulletproof)
  */
 function parseEvidenceStrength(
   explanation: string
 ): { level: "Low" | "Medium" | "High" | null; note: string } {
   const text = String(explanation ?? "").replace(/\r\n/g, "\n");
-
   const m = text.match(
     /(?:^|\n)\s*Evidence\s*strength\s*:\s*(?:\n\s*)*(Low|Medium|High)\b\s*(?:[:\-–—]\s*)?(.*)$/i
   );
-
   if (!m) return { level: null, note: "" };
 
   const levelRaw = (m[1] || "").trim().toLowerCase();
@@ -140,19 +132,15 @@ function parseEvidenceStrength(
 }
 
 function parseEvidencePercent(note: string): number | null {
-  // matches: (score=0.33), (score = 33%), score=0.33, score=33%
   const m = String(note ?? "").match(/score\s*=\s*([0-9]*\.?[0-9]+)\s*%?/i);
   if (!m) return null;
   const raw = Number(m[1]);
   if (!Number.isFinite(raw)) return null;
-
-  // if it already looks like 33, keep it. If 0.33, convert to 33.
   const pct = raw <= 1 ? Math.round(raw * 100) : Math.round(raw);
   return Math.max(0, Math.min(100, pct));
 }
 
 function stripScoreFromNote(note: string): string {
-  // remove "(score=..)" fragments cleanly
   return String(note ?? "")
     .replace(/\(\s*score\s*=\s*[0-9]*\.?[0-9]+\s*%?\s*\)\s*/gi, "")
     .replace(/score\s*=\s*[0-9]*\.?[0-9]+\s*%?\s*;?\s*/gi, "")
@@ -160,16 +148,12 @@ function stripScoreFromNote(note: string): string {
     .trim();
 }
 
-/** Pull out the model's main narrative without the Evidence strength footer (so warnings can sit above it cleanly) */
 function stripEvidenceSection(explanation: string) {
   const text = String(explanation ?? "").replace(/\r\n/g, "\n");
-  // remove everything from "Evidence strength:" to end
   return text.replace(/\n\s*Evidence\s*strength\s*:[\s\S]*$/i, "").trim();
 }
 
 function formatScoreToPercent(note: string) {
-  // Converts: "score=0.33" or "score = 0.33" -> "score=33%"
-  // Leaves anything else unchanged.
   return String(note ?? "").replace(/score\s*=\s*(0?\.\d+|1(?:\.0+)?)\b/gi, (_m, raw) => {
     const n = Number(raw);
     if (!Number.isFinite(n)) return _m;
@@ -180,7 +164,6 @@ function formatScoreToPercent(note: string) {
 
 /**
  * PREMIUM FORMATTER
- * Splits by the exact headers defined in route.ts
  */
 function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
   const sections = text.split(
@@ -192,7 +175,6 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
   const rendered = sections.map((part, i) => {
     let trimmed = part.trim();
 
-    // ✅ Only change Evidence strength section: score=0.33 -> score=33%
     if (currentHeader === "Evidence strength:") {
       trimmed = formatScoreToPercent(trimmed);
     }
@@ -293,7 +275,7 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
                         theme === "dark" ? "text-white/90" : "text-zinc-800"
                       )}
                     >
-                      <span className="font-semibold  mr-1">Reason:</span>
+                      <span className="font-semibold mr-1">Reason:</span>
                       {cleanNote || trimmed}
                     </p>
                   </div>
@@ -312,9 +294,7 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
                 ]);
 
                 const forceBullet = autoBulletHeaders.has(currentHeader);
-
                 const isBullet = forceBullet || l.trim().startsWith("-") || l.trim().startsWith("•");
-
                 const cleaned = l.trim().replace(/^[-•]\s*/, "");
 
                 return (
@@ -336,7 +316,6 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
       );
     }
 
-    // fallback if anything appears outside the known sections
     return (
       <p key={i} className={cn("mb-4", theme === "dark" ? "text-white/80" : "text-zinc-500")}>
         {trimmed}
@@ -351,7 +330,6 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
   );
 }
 
-/** Loader inside results card */
 function VisualAnalysisLoader() {
   return (
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-700">
@@ -412,7 +390,6 @@ function ElegantPill({ level }: { level: "Low" | "Medium" | "High" | null }) {
   );
 }
 
-/** Polished UI primitives */
 function IconButton({
   title,
   onClick,
@@ -452,24 +429,22 @@ function IconButton({
   );
 }
 
-/** ✅ Error presentation aligned to backend error_code + HTTP status behavior */
 function friendlyErrorMessage(error: ExplainErr["error"], code?: string) {
   if (!code) return error;
 
-  if (code === "INPUT_TOO_LARGE") return error; // already descriptive
+  if (code === "INPUT_TOO_LARGE") return error;
   if (code === "UPLOAD_TOO_LARGE") return error;
   if (code === "RATE_LIMITED") return "Too many requests. Give it a minute, then try again.";
   if (code === "INVALID_JSON") return "Request format error. Refresh the page and try again.";
   if (code === "EMPTY_INPUT") return "Please paste or upload some numbers.";
   if (code === "UPSTREAM_FAILURE") return "Analysis provider is temporarily unavailable. Try again in a moment.";
   if (code === "BAD_OUTPUT_FORMAT") return "Output formatting failed. Try again (or simplify the input).";
-  if (code === "NO_MATCHING_SHEET") return error; // already helpful
-  if (code === "EXCEL_PARSE_FAILED") return error; // already helpful
+  if (code === "NO_MATCHING_SHEET") return error;
+  if (code === "EXCEL_PARSE_FAILED") return error;
   if (code === "GATE_REQUIRED") return "Security check failed. Please retry.";
   return error;
 }
 
-/** ✅ Compact warnings block (uses backend warnings.categories) */
 function WarningsPanel({ warnings, theme }: { warnings?: ExplainOk["warnings"]; theme: Theme }) {
   const cats = warnings?.categories ?? [];
   if (!warnings || !warnings.total || cats.length === 0) return null;
@@ -557,7 +532,6 @@ function WarningsPanel({ warnings, theme }: { warnings?: ExplainOk["warnings"]; 
   );
 }
 
-/** ✅ Optional “Detected sheet” chip (reads backend meta.upload.chosen_sheet) */
 function DetectedSheet({ meta, theme }: { meta?: ExplainMeta; theme: Theme }) {
   const chosen = meta?.upload?.chosen_sheet;
   if (!chosen) return null;
@@ -586,7 +560,6 @@ function DetectedSheet({ meta, theme }: { meta?: ExplainMeta; theme: Theme }) {
   );
 }
 
-/** ✅ File “chip” (CSV/XLSX) with remove X (replaces filename text) */
 function FileChip({ file, theme, onRemove }: { file: File; theme: Theme; onRemove: () => void }) {
   const name = (file?.name ?? "").toLowerCase();
   const ext = name.includes(".") ? name.split(".").pop() || "" : "";
@@ -640,41 +613,30 @@ export default function HomePage() {
   const [lastRunInput, setLastRunInput] = useState<string>("");
   const [copied, setCopied] = useState(false);
 
-  // ✅ keep the file for multipart uploads
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-
-  // ✅ keep HTTP status for better UI messaging (429/413/etc.)
   const [lastHttpStatus, setLastHttpStatus] = useState<number | null>(null);
 
-  // ✅ preserve the user's paste when we lock the textarea for file mode
   const [savedPaste, setSavedPaste] = useState<string>("");
-
-  // ✅ show compact inline status text (no banner / no toast)
   const [fileStatusLine, setFileStatusLine] = useState<string>("");
 
-  // ✅ NEW: show a tiny inline status when we prefetch gate token
-  const [gateWarmStatus, setGateWarmStatus] = useState<"" | "warming" | "failed">("");
+  // ✅ NEW: show why "Explain" won't run (instead of disabling the button)
+  const [explainBlockReason, setExplainBlockReason] = useState<string>("");
 
-  // ✅ Gate token (memory cache; sessionStorage fallback)
   const gateRef = useRef<{ token: string; expMs: number } | null>(null);
   const gateInFlight = useRef<Promise<string> | null>(null);
 
   const resultRef = useRef<HTMLDivElement | null>(null);
 
-  /** ✅ hard limit state (no truncation) */
   const charCount = text.length;
   const overLimit = charCount > MAX_INPUT_CHARS;
 
   const hasText = useMemo(() => text.trim().length > 0, [text]);
   const hasFile = !!selectedFile;
-
   const hasResult = !!result;
-
-  // ✅ If user is in paste mode (no file), track whether text changed since last run.
   const inputChangedSinceRun = text.trim() !== lastRunInput.trim();
 
-  // ✅ Enable when either pasted text OR a file exists
-  // NOTE: keep this logic, but ensure disabled styling doesn't show "forbidden" hover.
+  // ✅ IMPORTANT: we no longer use this to disable the button.
+  // We only use it to decide if explain() should run or show a message.
   const canExplain = !loading && !overLimit && (hasFile || (hasText && (!hasResult || inputChangedSinceRun)));
 
   useEffect(() => {
@@ -688,20 +650,14 @@ export default function HomePage() {
     localStorage.setItem("emn_theme", theme);
   }, [theme]);
 
-  // ✅ hydrate gate token from sessionStorage on load
   useEffect(() => {
     const fromSess = readGateFromSession();
     if (fromSess) gateRef.current = fromSess;
   }, []);
 
-  /**
-   * ✅ Fetch a fresh gate token (deduped), with caching.
-   */
   const getGateToken = async (forceRefresh = false): Promise<string> => {
     const cached = gateRef.current;
-    if (!forceRefresh && cached && cached.expMs > nowMs() + 5_000) {
-      return cached.token;
-    }
+    if (!forceRefresh && cached && cached.expMs > nowMs() + 5_000) return cached.token;
 
     const fromSess = !forceRefresh ? readGateFromSession() : null;
     if (fromSess) {
@@ -746,38 +702,6 @@ export default function HomePage() {
     }
   };
 
-  /**
-   * ✅ NEW: Warm the gate token on first meaningful interaction.
-   * This makes the first "Explain" click feel instant (no "nothing happens" feeling),
-   * and reduces the chance of a perceived forbidden/blocked moment.
-   */
-  const warmGateIfNeeded = async () => {
-    const cached = gateRef.current;
-    const hasValid = cached && cached.expMs > nowMs() + 5_000;
-    if (hasValid) return;
-
-    const sess = readGateFromSession();
-    if (sess) {
-      gateRef.current = sess;
-      return;
-    }
-
-    if (gateWarmStatus === "warming") return;
-
-    setGateWarmStatus("warming");
-    try {
-      await getGateToken(false);
-      setGateWarmStatus("");
-    } catch {
-      // Non-blocking: we still fetch on actual click; this only affects perceived smoothness.
-      setGateWarmStatus("failed");
-      setTimeout(() => setGateWarmStatus(""), 1500);
-    }
-  };
-
-  /**
-   * ✅ Helper: call /api/explain with gate header and one auto-retry on gate failure.
-   */
   const callExplainWithGate = async (init: { method: "POST"; headers?: HeadersInit; body?: BodyInit | null }) => {
     const token = await getGateToken(false);
 
@@ -787,14 +711,12 @@ export default function HomePage() {
       return h;
     };
 
-    // first attempt
     let res = await fetch("/api/explain", {
       method: init.method,
       body: init.body ?? null,
       headers: makeHeaders(init.headers, token),
     });
 
-    // if gate required/expired -> refresh + retry once
     if (res.status === 401) {
       let isGate = true;
       try {
@@ -817,20 +739,11 @@ export default function HomePage() {
     return res;
   };
 
-  /**
-   * ✅ Upload behavior (critical):
-   * - Always lock textarea when file is present.
-   * - Always hide placeholder when file is present.
-   * - If paste existed, preserve it in savedPaste, then clear textarea.
-   * - Show a single inline line: "File selected — paste is cleared to avoid mixing inputs."
-   */
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
 
     const hadPaste = text.trim().length > 0;
-
-    // preserve paste if present, then clear & lock (lock is derived from hasFile)
     if (hadPaste) setSavedPaste(text);
     setText("");
 
@@ -839,38 +752,54 @@ export default function HomePage() {
     setResult(null);
     setLastRunInput("");
     setLastHttpStatus(null);
+    setExplainBlockReason("");
 
-    // show the single inline line (no banner)
     setFileStatusLine("File selected — paste is cleared to avoid mixing inputs.");
 
-    // warm gate early for smooth first Explain click
-    warmGateIfNeeded();
-
-    // allow re-upload of same file
     e.target.value = "";
+
+    // pre-warm token (non-blocking)
+    getGateToken(false).catch(() => {});
   };
 
-  /**
-   * ✅ Remove file behavior:
-   * - Unlock textarea (derived from hasFile=false)
-   * - Restore saved paste if any; otherwise keep empty
-   * - Clear inline file status line
-   */
   const removeFile = () => {
     setSelectedFile(null);
     setFileName(null);
     setResult(null);
     setLastHttpStatus(null);
+    setExplainBlockReason("");
 
-    // restore user's previous paste if it existed
     setText(savedPaste || "");
     setSavedPaste("");
     setFileStatusLine("");
   };
 
-  /** ✅ Multipart-first explain (now gated) */
+  /** ✅ Explain is ALWAYS clickable; we enforce validation inside. */
   const explain = async () => {
-    if (!canExplain) return;
+    // clear any previous reason
+    setExplainBlockReason("");
+
+    // Provide a friendly reason instead of disabling the button (no forbidden cursor)
+    if (loading) {
+      setExplainBlockReason("Already analysing…");
+      return;
+    }
+
+    if (overLimit) {
+      setExplainBlockReason(`Over limit: ${charCount.toLocaleString()} / ${MAX_INPUT_CHARS.toLocaleString()}`);
+      return;
+    }
+
+    if (!hasFile && !hasText) {
+      setExplainBlockReason("Paste some data or upload a file.");
+      return;
+    }
+
+    if (!hasFile && hasResult && !inputChangedSinceRun) {
+      // Your UI says "Edit" in this state; clicking Explain should guide user.
+      setExplainBlockReason("Edit your input to re-run.");
+      return;
+    }
 
     setLoading(true);
     setResult(null);
@@ -883,11 +812,7 @@ export default function HomePage() {
         const fd = new FormData();
         fd.append("file", selectedFile);
         if (text.trim().length) fd.append("input", text);
-
-        res = await callExplainWithGate({
-          method: "POST",
-          body: fd,
-        });
+        res = await callExplainWithGate({ method: "POST", body: fd });
       } else {
         res = await callExplainWithGate({
           method: "POST",
@@ -910,8 +835,6 @@ export default function HomePage() {
       }
 
       setResult(data);
-
-      // In paste-mode, this supports "Edit input to rerun"
       setLastRunInput(text);
 
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
@@ -935,6 +858,7 @@ export default function HomePage() {
     setResult(null);
     setLastRunInput("");
     setLastHttpStatus(null);
+    setExplainBlockReason("");
   };
 
   const evidence = useMemo(() => {
@@ -964,11 +888,6 @@ export default function HomePage() {
     window.print();
   };
 
-  const overLimitLabel = useMemo(() => {
-    if (!overLimit) return "";
-    return `Over limit ${charCount.toLocaleString()} / ${MAX_INPUT_CHARS.toLocaleString()}`;
-  }, [overLimit, charCount]);
-
   const errorUi = useMemo(() => {
     if (!result || result.ok) return null;
 
@@ -990,31 +909,15 @@ export default function HomePage() {
         : null;
 
     return { msg, hint };
-  }, [result, lastHttpStatus]);
+  }, [result, lastHttpStatus, charCount]);
 
   const detectedSheetMeta = useMemo(() => {
     if (!result || !result.ok) return undefined;
     return result.meta;
   }, [result]);
 
-  // For the button label: treat "file present" as a valid input even if textarea unchanged
   const showEditToRerun = !hasFile && hasResult && !inputChangedSinceRun;
-
-  // ✅ Lock textarea whenever file is present (critical)
   const textareaLocked = hasFile;
-
-  // ✅ NEW: smoothness — warm gate on first focus/hover/click
-  const warmedOnceRef = useRef(false);
-  const onPrimaryIntent = () => {
-    if (warmedOnceRef.current) return;
-    warmedOnceRef.current = true;
-    warmGateIfNeeded();
-  };
-
-  // ✅ NEW: prevent "forbidden" cursor feeling on the critical button:
-  // - Always keep cursor pointer on the button wrapper, even when disabled.
-  // - Use opacity + no hover transitions when disabled.
-  const explainBtnDisabled = !canExplain;
 
   return (
     <div
@@ -1023,7 +926,7 @@ export default function HomePage() {
         theme === "dark" ? "bg-[#050505] text-white" : "bg-[#fafafa] text-zinc-900"
       )}
     >
-      {/* Background: premium glow + subtle grid */}
+      {/* Background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none print:hidden">
         <div
           className={cn(
@@ -1102,14 +1005,12 @@ export default function HomePage() {
                       ? "bg-white/10 text-zinc-200 border border-white/10"
                       : "bg-zinc-100 text-zinc-900 border border-zinc-200 hover:bg-black hover:text-white hover:border-transparent"
                   )}
-                  onMouseEnter={onPrimaryIntent}
                 >
                   <Upload size={14} />
                   <span>{selectedFile ? "Change" : "Upload file"}</span>
                   <input type="file" className="hidden" onChange={onFile} accept=".csv,.txt,.tsv,.xls,.xlsx" />
                 </label>
 
-                {/* formats: informational, horizontal, non-clickable */}
                 <div className="absolute left-0 top-full mt-2 -translate-x-1 hidden md:flex items-center gap-3 select-none pointer-events-none">
                   {["Excel", "txt", "csv", "tsv"].map((t) => (
                     <span
@@ -1130,37 +1031,21 @@ export default function HomePage() {
                 <RotateCcw size={18} />
               </IconButton>
 
+              {/* ✅ Explain button: NEVER disabled, NEVER cursor-not-allowed */}
               <button
                 type="button"
                 onClick={explain}
-                disabled={explainBtnDisabled}
-                onMouseEnter={onPrimaryIntent}
-                onFocus={onPrimaryIntent}
-                onPointerDown={onPrimaryIntent}
                 className={cn(
                   "inline-flex items-center gap-2 px-4 py-2 rounded-2xl select-none",
                   "text-[13px] font-semibold tracking-[-0.01em]",
                   "transition-all duration-200 active:scale-[0.99]",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-
-                  // ✅ smooth UX: never show forbidden cursor on hover; use opacity instead
-                  "cursor-pointer disabled:cursor-pointer",
-
-                  // ✅ kill hover transitions when disabled (prevents “looks clickable but blocked”)
-                  "disabled:hover:opacity-95 disabled:hover:shadow-none",
-
+                  "cursor-pointer",
                   overLimit
                     ? "bg-rose-600 text-white border border-rose-500/30"
                     : theme === "dark"
-                    ? !explainBtnDisabled
-                      ? "bg-white text-black border-transparent shadow-[0_18px_60px_rgba(255,255,255,0.10)]"
-                      : "bg-white/10 text-zinc-200 border border-white/10"
-                    : !explainBtnDisabled
-                    ? "bg-black text-white border-transparent shadow-[0_18px_60px_rgba(0,0,0,0.18)]"
-                    : "bg-zinc-100 text-zinc-900 border border-zinc-200",
-
-                  // ✅ disabled state should be obviously disabled without forbidden cursor
-                  explainBtnDisabled && "opacity-80"
+                    ? "bg-white text-black border-transparent shadow-[0_18px_60px_rgba(255,255,255,0.10)]"
+                    : "bg-black text-white border-transparent shadow-[0_18px_60px_rgba(0,0,0,0.18)]"
                 )}
                 title={overLimit ? `${charCount.toLocaleString()}/${MAX_INPUT_CHARS.toLocaleString()}` : undefined}
               >
@@ -1172,7 +1057,9 @@ export default function HomePage() {
                 ) : overLimit ? (
                   <>
                     <AlertTriangle size={14} className="opacity-90" />
-                    <span className="text-[13px] font-semibold tracking-[-0.01em]">{overLimitLabel}</span>
+                    <span className="text-[13px] font-semibold tracking-[-0.01em]">
+                      Over limit {charCount.toLocaleString()} / {MAX_INPUT_CHARS.toLocaleString()}
+                    </span>
                   </>
                 ) : showEditToRerun ? (
                   <>
@@ -1189,34 +1076,32 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* ✅ Subtle gate warm status (only when it matters; no banner) */}
-          {(gateWarmStatus === "warming" || gateWarmStatus === "failed") && (
-            <div className="hidden md:block px-6 md:px-10 pt-4 pb-1">
-              <p className="text-[11px] font-semibold tracking-[-0.01em] text-zinc-600 dark:text-white/60">
-                {gateWarmStatus === "warming" ? "Warming up security…" : "Security warmup failed (non-blocking)."}
+          {/* ✅ Inline “why it didn’t run” line (prevents confusion) */}
+          {!!explainBlockReason && (
+            <div className="px-6 md:px-10 pt-4 pb-1">
+              <p className="text-[12px] font-semibold tracking-[-0.01em] text-rose-600 dark:text-rose-300">
+                {explainBlockReason}
               </p>
             </div>
           )}
 
-          {/* ✅ Inline status line (no banner). Only shows when file is selected. */}
           {hasFile && fileStatusLine && (
-            <div className="px-6 md:px-10 pt-4 pb-1">
-              <p className="text-[12px] font-semibold tracking-[-0.01em] text-zinc-700 dark:text-white/70">{fileStatusLine}</p>
+            <div className="px-6 md:px-10 pt-1 pb-1">
+              <p className="text-[12px] font-semibold tracking-[-0.01em] text-zinc-700 dark:text-white/70">
+                {fileStatusLine}
+              </p>
             </div>
           )}
 
-          {/* ✅ Fixed-height textarea */}
           <textarea
             value={text}
-            onFocus={onPrimaryIntent}
-            onMouseEnter={onPrimaryIntent}
             onChange={(e) => {
-              // ✅ hard block typing when a file is selected (critical)
               if (textareaLocked) return;
               setText(e.target.value);
+              setExplainBlockReason("");
             }}
             disabled={textareaLocked}
-            placeholder={textareaLocked ? "" : "Paste your data here…"} // ✅ hide placeholder when locked (critical)
+            placeholder={textareaLocked ? "" : "Paste your data here…"}
             className={cn(
               "w-full bg-transparent outline-none resize-none",
               "text-[14px] md:text-[15px] leading-relaxed font-medium tracking-[-0.01em]",
@@ -1229,7 +1114,7 @@ export default function HomePage() {
             )}
           />
 
-          {/* ✅ MOBILE CONTROLS */}
+          {/* MOBILE CONTROLS */}
           <div className="md:hidden sticky bottom-0 z-[5]">
             <div
               className={cn(
@@ -1246,40 +1131,26 @@ export default function HomePage() {
                 )}
                 title="Upload"
                 aria-label="Upload"
-                onTouchStart={onPrimaryIntent}
-                onMouseEnter={onPrimaryIntent}
               >
                 <Upload size={20} />
                 <input type="file" className="hidden" onChange={onFile} accept=".csv,.txt,.tsv,.xls,.xlsx" />
               </label>
 
+              {/* ✅ mobile Explain: never disabled */}
               <button
                 type="button"
                 onClick={explain}
-                disabled={explainBtnDisabled}
-                onTouchStart={onPrimaryIntent}
-                onMouseEnter={onPrimaryIntent}
-                onFocus={onPrimaryIntent}
                 className={cn(
                   "flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-full transition-all active:scale-[0.99]",
                   "text-[16px] font-semibold tracking-[-0.01em]",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-
-                  // ✅ never show forbidden cursor
-                  "cursor-pointer disabled:cursor-pointer",
-                  explainBtnDisabled && "opacity-85",
-
+                  "cursor-pointer",
                   overLimit
                     ? "bg-rose-600 text-white border border-rose-500/30"
                     : theme === "dark"
-                    ? !explainBtnDisabled
-                      ? "bg-white text-black border-transparent"
-                      : "bg-white/10 text-zinc-200 border border-white/10 disabled:opacity-100"
-                    : !explainBtnDisabled
-                    ? "bg-black text-white border-transparent"
-                    : "bg-zinc-200 text-zinc-600 border-transparent"
+                    ? "bg-white text-black border-transparent"
+                    : "bg-black text-white border-transparent"
                 )}
-                title={overLimit ? `${charCount.toLocaleString()}/${MAX_INPUT_CHARS.toLocaleString()}` : undefined}
               >
                 {loading ? (
                   <span className="inline-flex items-center justify-center w-full">
@@ -1288,7 +1159,9 @@ export default function HomePage() {
                 ) : overLimit ? (
                   <>
                     <AlertTriangle size={16} className="opacity-90 shrink-0" />
-                    <span className="text-[12px] font-semibold tracking-[-0.01em]">{overLimitLabel}</span>
+                    <span className="text-[12px] font-semibold tracking-[-0.01em]">
+                      Over limit {charCount.toLocaleString()} / {MAX_INPUT_CHARS.toLocaleString()}
+                    </span>
                   </>
                 ) : showEditToRerun ? (
                   "Edit input to re-run"
@@ -1312,7 +1185,6 @@ export default function HomePage() {
               </button>
             </div>
 
-            {/* show chip instead of filename text */}
             {selectedFile && (
               <div className="mt-2 px-2">
                 <FileChip file={selectedFile} theme={theme} onRemove={removeFile} />
@@ -1347,13 +1219,8 @@ export default function HomePage() {
                     <ElegantPill level={evidence.level} />
                   </div>
 
-                  {/* show detected Excel sheet when meta is present */}
                   <DetectedSheet meta={detectedSheetMeta} theme={theme} />
-
-                  {/* deterministic sanity warnings surfaced */}
                   <WarningsPanel warnings={result.warnings} theme={theme} />
-
-                  {/* Keep your exact existing formatter for the final output */}
                   <ElegantAnalysis text={analysisText} theme={theme} />
 
                   <div className="mt-12 flex flex-wrap items-center gap-3 print:hidden">
@@ -1400,7 +1267,9 @@ export default function HomePage() {
                   <AlertCircle size={24} className="mt-0.5" />
                   <div>
                     <p className="font-semibold tracking-[-0.01em]">{errorUi?.msg ?? result?.error}</p>
-                    {errorUi?.hint && <p className="mt-2 text-[12px] text-rose-600/80 dark:text-rose-300/80">{errorUi.hint}</p>}
+                    {errorUi?.hint && (
+                      <p className="mt-2 text-[12px] text-rose-600/80 dark:text-rose-300/80">{errorUi.hint}</p>
+                    )}
                     {result?.error_code && (
                       <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.22em] opacity-60">
                         {result.error_code}
@@ -1456,16 +1325,11 @@ export default function HomePage() {
           color-scheme: dark;
         }
 
-        /* ✅ Force Reset hover style in DARK mode (desktop only) */
         @media (hover: hover) and (pointer: fine) {
           html.dark .emn-reset:hover {
             background: #ffffff !important;
             color: #000000 !important;
           }
-        }
-
-        /* ✅ Force Upload hover style in DARK mode (desktop only) */
-        @media (hover: hover) and (pointer: fine) {
           html.dark .emn-upload:hover {
             background: #ffffff !important;
             color: #000000 !important;
@@ -1474,12 +1338,6 @@ export default function HomePage() {
           }
         }
 
-        /* ✅ NEW: never show the “forbidden” cursor on disabled critical actions */
-        button:disabled {
-          cursor: pointer !important;
-        }
-
-        /* Global typography + rendering (Apple/Google crisp) */
         html,
         body {
           font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
@@ -1493,7 +1351,6 @@ export default function HomePage() {
           background: rgba(59, 130, 246, 0.25);
         }
 
-        /* Subtle shimmer for the hero gradient */
         .animate-shimmer-text {
           animation: shimmer-text 6s linear infinite;
         }
@@ -1519,7 +1376,6 @@ export default function HomePage() {
           animation: shake 0.4s ease-in-out;
         }
 
-        /* Reduced motion support (polite, 2026-standard) */
         @media (prefers-reduced-motion: reduce) {
           .animate-shimmer-text,
           .animate-shake,
@@ -1533,18 +1389,14 @@ export default function HomePage() {
           }
         }
 
-        /* ✅ Inner scroll */
         .emn-scroll {
           scrollbar-gutter: stable;
           overscroll-behavior: contain;
           -webkit-overflow-scrolling: touch;
-
-          /* Firefox */
           scrollbar-width: auto;
           scrollbar-color: rgba(90, 90, 90, 0.42) transparent;
         }
 
-        /* WebKit */
         .emn-scroll::-webkit-scrollbar {
           width: 14px;
         }
@@ -1564,7 +1416,6 @@ export default function HomePage() {
           background-clip: padding-box;
         }
 
-        /* Print-to-PDF */
         @media print {
           @page {
             margin: 2cm;
