@@ -273,9 +273,7 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
                         <span
                           className={cn(
                             "ml-1 px-2 py-0.5 rounded-full border text-[10px] font-black tracking-[0.14em]",
-                            theme === "dark"
-                              ? "border-white/10 bg-white/[0.03]"
-                              : "border-black/10 bg-black/[0.03]"
+                            theme === "dark" ? "border-white/10 bg-white/[0.03]" : "border-black/10 bg-black/[0.03]"
                           )}
                         >
                           {pct}%
@@ -648,11 +646,14 @@ export default function HomePage() {
   // ✅ keep HTTP status for better UI messaging (429/413/etc.)
   const [lastHttpStatus, setLastHttpStatus] = useState<number | null>(null);
 
-  // ✅ NEW: preserve the user's paste when we lock the textarea for file mode
+  // ✅ preserve the user's paste when we lock the textarea for file mode
   const [savedPaste, setSavedPaste] = useState<string>("");
 
-  // ✅ NEW: show compact inline status text (no banner / no toast)
+  // ✅ show compact inline status text (no banner / no toast)
   const [fileStatusLine, setFileStatusLine] = useState<string>("");
+
+  // ✅ NEW: show a tiny inline status when we prefetch gate token
+  const [gateWarmStatus, setGateWarmStatus] = useState<"" | "warming" | "failed">("");
 
   // ✅ Gate token (memory cache; sessionStorage fallback)
   const gateRef = useRef<{ token: string; expMs: number } | null>(null);
@@ -673,6 +674,7 @@ export default function HomePage() {
   const inputChangedSinceRun = text.trim() !== lastRunInput.trim();
 
   // ✅ Enable when either pasted text OR a file exists
+  // NOTE: keep this logic, but ensure disabled styling doesn't show "forbidden" hover.
   const canExplain = !loading && !overLimit && (hasFile || (hasText && (!hasResult || inputChangedSinceRun)));
 
   useEffect(() => {
@@ -745,6 +747,35 @@ export default function HomePage() {
   };
 
   /**
+   * ✅ NEW: Warm the gate token on first meaningful interaction.
+   * This makes the first "Explain" click feel instant (no "nothing happens" feeling),
+   * and reduces the chance of a perceived forbidden/blocked moment.
+   */
+  const warmGateIfNeeded = async () => {
+    const cached = gateRef.current;
+    const hasValid = cached && cached.expMs > nowMs() + 5_000;
+    if (hasValid) return;
+
+    const sess = readGateFromSession();
+    if (sess) {
+      gateRef.current = sess;
+      return;
+    }
+
+    if (gateWarmStatus === "warming") return;
+
+    setGateWarmStatus("warming");
+    try {
+      await getGateToken(false);
+      setGateWarmStatus("");
+    } catch {
+      // Non-blocking: we still fetch on actual click; this only affects perceived smoothness.
+      setGateWarmStatus("failed");
+      setTimeout(() => setGateWarmStatus(""), 1500);
+    }
+  };
+
+  /**
    * ✅ Helper: call /api/explain with gate header and one auto-retry on gate failure.
    */
   const callExplainWithGate = async (init: { method: "POST"; headers?: HeadersInit; body?: BodyInit | null }) => {
@@ -765,13 +796,11 @@ export default function HomePage() {
 
     // if gate required/expired -> refresh + retry once
     if (res.status === 401) {
-      // try to parse to confirm error_code, but even if parsing fails, retry is safe once
       let isGate = true;
       try {
         const peek = (await res.clone().json()) as ExplainResult;
-        isGate = !peek || !("ok" in peek) || (peek as any).error_code === "GATE_REQUIRED";
+        isGate = (peek as any)?.error_code === "GATE_REQUIRED";
       } catch {
-        // assume gate-related 401
         isGate = true;
       }
 
@@ -794,7 +823,6 @@ export default function HomePage() {
    * - Always hide placeholder when file is present.
    * - If paste existed, preserve it in savedPaste, then clear textarea.
    * - Show a single inline line: "File selected — paste is cleared to avoid mixing inputs."
-   * - If no paste existed, still clear textarea (it’s already empty), lock it, and show the same line.
    */
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -814,6 +842,9 @@ export default function HomePage() {
 
     // show the single inline line (no banner)
     setFileStatusLine("File selected — paste is cleared to avoid mixing inputs.");
+
+    // warm gate early for smooth first Explain click
+    warmGateIfNeeded();
 
     // allow re-upload of same file
     e.target.value = "";
@@ -851,14 +882,11 @@ export default function HomePage() {
       if (selectedFile) {
         const fd = new FormData();
         fd.append("file", selectedFile);
-        // IMPORTANT: textarea is locked + cleared in file mode, so we normally don't append input
-        // but keep this in case you later decide to allow optional context fields.
         if (text.trim().length) fd.append("input", text);
 
         res = await callExplainWithGate({
           method: "POST",
           body: fd,
-          // NOTE: don't set Content-Type for FormData; browser will set boundary
         });
       } else {
         res = await callExplainWithGate({
@@ -975,6 +1003,19 @@ export default function HomePage() {
   // ✅ Lock textarea whenever file is present (critical)
   const textareaLocked = hasFile;
 
+  // ✅ NEW: smoothness — warm gate on first focus/hover/click
+  const warmedOnceRef = useRef(false);
+  const onPrimaryIntent = () => {
+    if (warmedOnceRef.current) return;
+    warmedOnceRef.current = true;
+    warmGateIfNeeded();
+  };
+
+  // ✅ NEW: prevent "forbidden" cursor feeling on the critical button:
+  // - Always keep cursor pointer on the button wrapper, even when disabled.
+  // - Use opacity + no hover transitions when disabled.
+  const explainBtnDisabled = !canExplain;
+
   return (
     <div
       className={cn(
@@ -1061,6 +1102,7 @@ export default function HomePage() {
                       ? "bg-white/10 text-zinc-200 border border-white/10"
                       : "bg-zinc-100 text-zinc-900 border border-zinc-200 hover:bg-black hover:text-white hover:border-transparent"
                   )}
+                  onMouseEnter={onPrimaryIntent}
                 >
                   <Upload size={14} />
                   <span>{selectedFile ? "Change" : "Upload file"}</span>
@@ -1072,10 +1114,7 @@ export default function HomePage() {
                   {["Excel", "txt", "csv", "tsv"].map((t) => (
                     <span
                       key={t}
-                      className={cn(
-                        "text-[9px] font-medium  tracking-[0.26em]",
-                        theme === "dark" ? "text-white/75" : "text-zinc-500"
-                      )}
+                      className={cn("text-[9px] font-medium  tracking-[0.26em]", theme === "dark" ? "text-white/75" : "text-zinc-500")}
                     >
                       {t}
                     </span>
@@ -1094,22 +1133,34 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={explain}
-                disabled={!canExplain}
+                disabled={explainBtnDisabled}
+                onMouseEnter={onPrimaryIntent}
+                onFocus={onPrimaryIntent}
+                onPointerDown={onPrimaryIntent}
                 className={cn(
                   "inline-flex items-center gap-2 px-4 py-2 rounded-2xl select-none",
                   "text-[13px] font-semibold tracking-[-0.01em]",
                   "transition-all duration-200 active:scale-[0.99]",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                  canExplain ? "cursor-pointer" : "cursor-not-allowed",
+
+                  // ✅ smooth UX: never show forbidden cursor on hover; use opacity instead
+                  "cursor-pointer disabled:cursor-pointer",
+
+                  // ✅ kill hover transitions when disabled (prevents “looks clickable but blocked”)
+                  "disabled:hover:opacity-95 disabled:hover:shadow-none",
+
                   overLimit
                     ? "bg-rose-600 text-white border border-rose-500/30"
                     : theme === "dark"
-                    ? canExplain
+                    ? !explainBtnDisabled
                       ? "bg-white text-black border-transparent shadow-[0_18px_60px_rgba(255,255,255,0.10)]"
                       : "bg-white/10 text-zinc-200 border border-white/10"
-                    : canExplain
+                    : !explainBtnDisabled
                     ? "bg-black text-white border-transparent shadow-[0_18px_60px_rgba(0,0,0,0.18)]"
-                    : "bg-zinc-100 text-zinc-900 border border-zinc-200 hover:bg-black hover:text-white hover:border-transparent"
+                    : "bg-zinc-100 text-zinc-900 border border-zinc-200",
+
+                  // ✅ disabled state should be obviously disabled without forbidden cursor
+                  explainBtnDisabled && "opacity-80"
                 )}
                 title={overLimit ? `${charCount.toLocaleString()}/${MAX_INPUT_CHARS.toLocaleString()}` : undefined}
               >
@@ -1138,18 +1189,27 @@ export default function HomePage() {
             </div>
           </div>
 
+          {/* ✅ Subtle gate warm status (only when it matters; no banner) */}
+          {(gateWarmStatus === "warming" || gateWarmStatus === "failed") && (
+            <div className="hidden md:block px-6 md:px-10 pt-4 pb-1">
+              <p className="text-[11px] font-semibold tracking-[-0.01em] text-zinc-600 dark:text-white/60">
+                {gateWarmStatus === "warming" ? "Warming up security…" : "Security warmup failed (non-blocking)."}
+              </p>
+            </div>
+          )}
+
           {/* ✅ Inline status line (no banner). Only shows when file is selected. */}
           {hasFile && fileStatusLine && (
             <div className="px-6 md:px-10 pt-4 pb-1">
-              <p className="text-[12px] font-semibold tracking-[-0.01em] text-zinc-700 dark:text-white/70">
-                {fileStatusLine}
-              </p>
+              <p className="text-[12px] font-semibold tracking-[-0.01em] text-zinc-700 dark:text-white/70">{fileStatusLine}</p>
             </div>
           )}
 
           {/* ✅ Fixed-height textarea */}
           <textarea
             value={text}
+            onFocus={onPrimaryIntent}
+            onMouseEnter={onPrimaryIntent}
             onChange={(e) => {
               // ✅ hard block typing when a file is selected (critical)
               if (textareaLocked) return;
@@ -1186,6 +1246,8 @@ export default function HomePage() {
                 )}
                 title="Upload"
                 aria-label="Upload"
+                onTouchStart={onPrimaryIntent}
+                onMouseEnter={onPrimaryIntent}
               >
                 <Upload size={20} />
                 <input type="file" className="hidden" onChange={onFile} accept=".csv,.txt,.tsv,.xls,.xlsx" />
@@ -1194,19 +1256,26 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={explain}
-                disabled={!canExplain}
+                disabled={explainBtnDisabled}
+                onTouchStart={onPrimaryIntent}
+                onMouseEnter={onPrimaryIntent}
+                onFocus={onPrimaryIntent}
                 className={cn(
                   "flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-full transition-all active:scale-[0.99]",
                   "text-[16px] font-semibold tracking-[-0.01em]",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                  canExplain ? "cursor-pointer" : "cursor-not-allowed",
+
+                  // ✅ never show forbidden cursor
+                  "cursor-pointer disabled:cursor-pointer",
+                  explainBtnDisabled && "opacity-85",
+
                   overLimit
                     ? "bg-rose-600 text-white border border-rose-500/30"
                     : theme === "dark"
-                    ? canExplain
+                    ? !explainBtnDisabled
                       ? "bg-white text-black border-transparent"
                       : "bg-white/10 text-zinc-200 border border-white/10 disabled:opacity-100"
-                    : canExplain
+                    : !explainBtnDisabled
                     ? "bg-black text-white border-transparent"
                     : "bg-zinc-200 text-zinc-600 border-transparent"
                 )}
@@ -1296,9 +1365,7 @@ export default function HomePage() {
                         "text-[13px] font-semibold tracking-[-0.01em]",
                         "transition-all duration-200 active:scale-[0.99]",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                        theme === "dark"
-                          ? "border-white/10 hover:bg-white/5 text-white/90"
-                          : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
+                        theme === "dark" ? "border-white/10 hover:bg-white/5 text-white/90" : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
                       )}
                     >
                       {copied ? (
@@ -1333,9 +1400,7 @@ export default function HomePage() {
                   <AlertCircle size={24} className="mt-0.5" />
                   <div>
                     <p className="font-semibold tracking-[-0.01em]">{errorUi?.msg ?? result?.error}</p>
-                    {errorUi?.hint && (
-                      <p className="mt-2 text-[12px] text-rose-600/80 dark:text-rose-300/80">{errorUi.hint}</p>
-                    )}
+                    {errorUi?.hint && <p className="mt-2 text-[12px] text-rose-600/80 dark:text-rose-300/80">{errorUi.hint}</p>}
                     {result?.error_code && (
                       <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.22em] opacity-60">
                         {result.error_code}
@@ -1407,6 +1472,11 @@ export default function HomePage() {
             border-color: transparent !important;
             box-shadow: 0 18px 60px rgba(255, 255, 255, 0.12) !important;
           }
+        }
+
+        /* ✅ NEW: never show the “forbidden” cursor on disabled critical actions */
+        button:disabled {
+          cursor: pointer !important;
         }
 
         /* Global typography + rendering (Apple/Google crisp) */
