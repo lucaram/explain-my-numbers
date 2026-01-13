@@ -1625,14 +1625,7 @@ export default function HomePage() {
                       </div>
                       <h3 className="text-[22px] md:text-2xl font-black tracking-[-0.02em]">
                         Synthesis
-                        <span
-                          className={cn(
-                            "ml-3 text-[10px] font-black uppercase tracking-[0.30em] align-middle",
-                            theme === "dark" ? "text-white/45" : "text-zinc-500"
-                          )}
-                        >
-                          output
-                        </span>
+
                       </h3>
                     </div>
 

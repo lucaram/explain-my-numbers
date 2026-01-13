@@ -6,9 +6,7 @@ import { sendMagicLinkEmail } from "@/lib/email"; // (we’ll create this in fil
 
 export const runtime = "nodejs";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20",
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 const PRICE_ID = process.env.STRIPE_PRICE_ID_MONTHLY!; // your £4.99/month price id
 const APP_ORIGIN = process.env.APP_ORIGIN!; // e.g. https://explain-my-numbers-murex.vercel.app
