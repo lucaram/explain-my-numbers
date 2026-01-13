@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, createHmac, createHash } from "crypto";
 /**
  * MODE A (schema-free, comprehensive):
  * - Accept any CSV/TSV/TXT/XLS/XLSX
@@ -154,40 +154,62 @@ function assertPasteSize(s: string) {
 }
 
 /** --------------------------
- * Server gate token (Option A)
+ * Rate limiting helpers
  * -------------------------- */
 
-type GatePayload = { iat: number; exp: number };
+function getClientIp(req: Request) {
+  const xf = req.headers.get("x-forwarded-for");
+  if (xf) return xf.split(",")[0].trim();
 
-function base64urlDecodeToBuffer(s: string) {
-  const pad = 4 - (s.length % 4 || 4);
-  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad);
-  return Buffer.from(b64, "base64");
-}
+  const xr = req.headers.get("x-real-ip");
+  if (xr) return xr.trim();
 
-async function hmacSha256(secret: string, data: string) {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign", "verify"]
+  return (
+    req.headers.get("cf-connecting-ip")?.trim() ||
+    req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
+    "127.0.0.1"
   );
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(data));
-  return Buffer.from(sig);
 }
+
+async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
+  const res = await ratelimit.limit(identifier);
+
+  if (res.success) return { ok: true };
+
+  const retryAfterSec = Math.max(1, Math.ceil((res.reset - Date.now()) / 1000));
+  return { ok: false, retryAfterSec };
+}
+
+/** --------------------------
+ * Server gate token (matches /api/gate)
+ * -------------------------- */
 
 /**
- * Token format: base64url(JSON payload) + "." + base64url(HMAC_SHA256(secret, payloadB64))
- * Payload contains iat/exp (epoch seconds).
+ * Token format (opaque string):
+ *   v1.<window>.<hmacHex>
+ *
+ * window = 10-minute bucket number (integer)
+ * hmac = HMAC_SHA256(GATE_SECRET, "v1|ip|uahash|window")
  *
  * Header: X-EMN-Gate: <token>
  */
+
+function uaHashShort(req: Request) {
+  const ua = (req.headers.get("user-agent") ?? "").slice(0, 300);
+  const h = createHash("sha256").update(ua).digest("hex");
+  return h.slice(0, 16);
+}
+
+function mintExpectedSigHex(params: { ip: string; ua16: string; window: number; secret: string }) {
+  const { ip, ua16, window, secret } = params;
+  const payload = `v1|${ip}|${ua16}|${window}`;
+  return createHmac("sha256", secret).update(payload).digest("hex");
+}
+
 async function verifyGateTokenOrThrow(req: Request) {
-  const secret = process.env.EMN_GATE_SECRET;
-  if (!secret) {
-    throw Object.assign(new Error("Server is missing EMN_GATE_SECRET configuration."), {
+  const secret = String(process.env.GATE_SECRET ?? "").trim();
+  if (!secret || secret.length < 24) {
+    throw Object.assign(new Error("Server is missing GATE_SECRET configuration."), {
       code: "CONFIG_ERROR" as ApiErrorCode,
       status: 500,
     });
@@ -202,55 +224,44 @@ async function verifyGateTokenOrThrow(req: Request) {
   }
 
   const parts = token.split(".");
-  if (parts.length !== 2) {
+  if (parts.length !== 3 || parts[0] !== "v1") {
     throw Object.assign(new Error("Invalid gate token."), {
       code: "GATE_REQUIRED" as ApiErrorCode,
       status: 401,
     });
   }
 
-  const [payloadB64, sigB64] = parts;
+  const window = Number(parts[1]);
+  const sigHex = parts[2];
 
-  let expected: Buffer;
-  try {
-    expected = await hmacSha256(secret, payloadB64);
-  } catch {
+  if (!Number.isFinite(window) || !/^[0-9a-f]{64}$/i.test(sigHex)) {
     throw Object.assign(new Error("Invalid gate token."), {
       code: "GATE_REQUIRED" as ApiErrorCode,
       status: 401,
     });
   }
 
-  const got = base64urlDecodeToBuffer(sigB64);
+  // current 10-min bucket
+  const windowSec = 10 * 60;
+  const nowWindow = Math.floor(Date.now() / 1000 / windowSec);
 
-  if (got.length !== expected.length || !timingSafeEqual(got, expected)
-) {
-    throw Object.assign(new Error("Invalid gate token."), {
-      code: "GATE_REQUIRED" as ApiErrorCode,
-      status: 401,
-    });
-  }
-
-  let payload: GatePayload | null = null;
-  try {
-    const raw = base64urlDecodeToBuffer(payloadB64).toString("utf8");
-    payload = JSON.parse(raw);
-  } catch {
-    payload = null;
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  const exp = Number(payload?.exp ?? 0);
-  const iat = Number(payload?.iat ?? 0);
-
-  if (!Number.isFinite(exp) || exp <= now) {
+  // Allow current window or previous window (handles boundary/clock skew)
+  if (!(window === nowWindow || window === nowWindow - 1)) {
     throw Object.assign(new Error("Expired gate token."), {
       code: "GATE_REQUIRED" as ApiErrorCode,
       status: 401,
     });
   }
 
-  if (!Number.isFinite(iat) || iat > now + 60 || iat < now - 60 * 60 * 24) {
+  const ip = getClientIp(req);
+  const ua16 = uaHashShort(req);
+
+  const expectedHex = mintExpectedSigHex({ ip, ua16, window, secret });
+
+  const got = Buffer.from(sigHex, "hex");
+  const expected = Buffer.from(expectedHex, "hex");
+
+  if (got.length !== expected.length || !timingSafeEqual(got, expected)) {
     throw Object.assign(new Error("Invalid gate token."), {
       code: "GATE_REQUIRED" as ApiErrorCode,
       status: 401,
@@ -1836,33 +1847,6 @@ async function extractInput(req: Request): Promise<Extracted> {
 }
 
 /** --------------------------
- * Rate limiting helpers
- * -------------------------- */
-
-function getClientIp(req: Request) {
-  const xf = req.headers.get("x-forwarded-for");
-  if (xf) return xf.split(",")[0].trim();
-
-  const xr = req.headers.get("x-real-ip");
-  if (xr) return xr.trim();
-
-  return (
-    req.headers.get("cf-connecting-ip")?.trim() ||
-    req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
-    "127.0.0.1"
-  );
-}
-
-async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
-  const res = await ratelimit.limit(identifier);
-
-  if (res.success) return { ok: true };
-
-  const retryAfterSec = Math.max(1, Math.ceil((res.reset - Date.now()) / 1000));
-  return { ok: false, retryAfterSec };
-}
-
-/** --------------------------
  * Prompt packer (schema-free)
  * -------------------------- */
 
@@ -1916,7 +1900,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // ✅ Option A: require short-lived server gate token (prevents quota burning)
+  // ✅ Require short-lived server gate token (prevents quota burning)
   try {
     await verifyGateTokenOrThrow(req);
   } catch (err: any) {
