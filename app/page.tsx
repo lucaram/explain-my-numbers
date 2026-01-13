@@ -66,50 +66,6 @@ const cn = (...xs: Array<string | false | null | undefined>) => xs.filter(Boolea
 const MAX_INPUT_CHARS = 50_000;
 
 /**
- * ✅ Gate token cache (short-lived)
- * - We fetch /api/gate, store token + expiry in memory (and sessionStorage as a fallback)
- * - Always send X-EMN-Gate when calling /api/explain (file + text)
- * - If /api/explain returns 401 / GATE_REQUIRED, refresh token once and retry
- */
-type GateResponseOk = { ok: true; gate_token: string; expires_in_s?: number };
-type GateResponseErr = { ok: false; error: string; error_code?: string };
-type GateResponse = GateResponseOk | GateResponseErr;
-
-const GATE_HEADER = "X-EMN-Gate";
-const GATE_CACHE_KEY = "emn_gate_cache_v1";
-const DEFAULT_GATE_TTL_MS = 5 * 60 * 1000; // fallback if expires_in_s isn't provided
-
-function nowMs() {
-  return Date.now();
-}
-
-function safeJsonParse<T>(s: string | null): T | null {
-  if (!s) return null;
-  try {
-    return JSON.parse(s) as T;
-  } catch {
-    return null;
-  }
-}
-
-function readGateFromSession(): { token: string; expMs: number } | null {
-  if (typeof window === "undefined") return null;
-  const parsed = safeJsonParse<{ token: string; expMs: number }>(sessionStorage.getItem(GATE_CACHE_KEY));
-  if (!parsed?.token || !parsed?.expMs) return null;
-  if (parsed.expMs <= nowMs() + 5_000) return null; // 5s skew
-  return parsed;
-}
-
-function writeGateToSession(token: string, expMs: number) {
-  if (typeof window === "undefined") return;
-  try {
-    sessionStorage.setItem(GATE_CACHE_KEY, JSON.stringify({ token, expMs }));
-  } catch {
-    // ignore
-  }
-}
-
-/**
  * Evidence strength parser (bulletproof):
  * supports:
  * - "Evidence strength: High – reason"
@@ -441,7 +397,11 @@ function IconButton({
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
         tone === "danger"
           ? "text-rose-500/80 hover:text-rose-500 hover:bg-rose-500/10"
-          : cn("text-zinc-500 dark:text-zinc-400", "hover:bg-black hover:text-white", "dark:hover:bg-white/5 dark:hover:text-white"),
+          : cn(
+              "text-zinc-500 dark:text-zinc-400",
+              "hover:bg-black hover:text-white",
+              "dark:hover:bg-white/5 dark:hover:text-white"
+            ),
         className
       )}
     >
@@ -463,7 +423,6 @@ function friendlyErrorMessage(error: ExplainErr["error"], code?: string) {
   if (code === "BAD_OUTPUT_FORMAT") return "Output formatting failed. Try again (or simplify the input).";
   if (code === "NO_MATCHING_SHEET") return error; // already helpful
   if (code === "EXCEL_PARSE_FAILED") return error; // already helpful
-  if (code === "GATE_REQUIRED") return "Security check failed. Please retry.";
   return error;
 }
 
@@ -548,7 +507,8 @@ function WarningsPanel({ warnings, theme }: { warnings?: ExplainOk["warnings"]; 
       </div>
 
       <p className="mt-4 text-[11px] text-zinc-500 dark:text-zinc-400">
-        These are automatic checks for possible data issues (format, scale, arithmetic). They can reduce confidence in trend conclusions.
+        These are automatic checks for possible data issues (format, scale, arithmetic). They can reduce confidence in
+        trend conclusions.
       </p>
     </div>
   );
@@ -572,7 +532,9 @@ function DetectedSheet({ meta, theme }: { meta?: ExplainMeta; theme: Theme }) {
       )}
       title={allSheets.length ? `Sheets: ${allSheets.join(", ")}` : undefined}
     >
-      <span className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-600/80 dark:text-blue-400/80">Detected sheet</span>
+      <span className="text-[10px] font-black uppercase tracking-[0.24em] text-blue-600/80 dark:text-blue-400/80">
+        Detected sheet
+      </span>
       <span className="text-[11px] font-semibold tracking-[-0.01em]">
         {chosen}
         <span className="opacity-60">{scoreText}</span>
@@ -647,10 +609,6 @@ export default function HomePage() {
   // ✅ NEW: show compact inline status text (no banner / no toast)
   const [fileStatusLine, setFileStatusLine] = useState<string>("");
 
-  // ✅ Gate token (memory cache; sessionStorage fallback)
-  const gateRef = useRef<{ token: string; expMs: number } | null>(null);
-  const gateInFlight = useRef<Promise<string> | null>(null);
-
   const resultRef = useRef<HTMLDivElement | null>(null);
 
   /** ✅ hard limit state (no truncation) */
@@ -665,12 +623,8 @@ export default function HomePage() {
   // ✅ If user is in paste mode (no file), track whether text changed since last run.
   const inputChangedSinceRun = text.trim() !== lastRunInput.trim();
 
-  /**
-   * ✅ FIX:
-   * The button should NOT become disabled just because the input hasn't changed.
-   * If there's valid text (or a file), you can always run again.
-   */
-  const canExplain = !loading && !overLimit && (hasFile || hasText);
+  // ✅ Enable when either pasted text OR a file exists
+  const canExplain = !loading && !overLimit && (hasFile || (hasText && (!hasResult || inputChangedSinceRun)));
 
   useEffect(() => {
     const saved = localStorage.getItem("emn_theme") as Theme | null;
@@ -682,108 +636,6 @@ export default function HomePage() {
     document.documentElement.classList.toggle("dark", theme === "dark");
     localStorage.setItem("emn_theme", theme);
   }, [theme]);
-
-  // ✅ hydrate gate token from sessionStorage on load
-  useEffect(() => {
-    const fromSess = readGateFromSession();
-    if (fromSess) gateRef.current = fromSess;
-  }, []);
-
-  /**
-   * ✅ Fetch a fresh gate token (deduped), with caching.
-   */
-  const getGateToken = async (forceRefresh = false): Promise<string> => {
-    const cached = gateRef.current;
-    if (!forceRefresh && cached && cached.expMs > nowMs() + 5_000) {
-      return cached.token;
-    }
-
-    const fromSess = !forceRefresh ? readGateFromSession() : null;
-    if (fromSess) {
-      gateRef.current = fromSess;
-      return fromSess.token;
-    }
-
-    if (!forceRefresh && gateInFlight.current) return gateInFlight.current;
-
-    gateInFlight.current = (async () => {
-      const res = await fetch("/api/gate", { method: "POST" });
-      let data: GateResponse;
-      try {
-        data = (await res.json()) as GateResponse;
-      } catch {
-        data = { ok: false, error: "Unexpected gate response.", error_code: "SERVER_ERROR" };
-      }
-
-      if (!res.ok || !data.ok || !(data as any).gate_token) {
-        const msg = (data as any)?.error || "Failed to obtain gate token.";
-        throw new Error(msg);
-      }
-
-      const ttlMs =
-        typeof (data as GateResponseOk).expires_in_s === "number"
-          ? Math.max(5, (data as GateResponseOk).expires_in_s!) * 1000
-          : DEFAULT_GATE_TTL_MS;
-
-      const expMs = nowMs() + ttlMs;
-      const token = (data as GateResponseOk).gate_token;
-
-      gateRef.current = { token, expMs };
-      writeGateToSession(token, expMs);
-
-      return token;
-    })();
-
-    try {
-      return await gateInFlight.current;
-    } finally {
-      gateInFlight.current = null;
-    }
-  };
-
-  /**
-   * ✅ Helper: call /api/explain with gate header and one auto-retry on gate failure.
-   */
-  const callExplainWithGate = async (init: { method: "POST"; headers?: HeadersInit; body?: BodyInit | null }) => {
-    const token = await getGateToken(false);
-
-    const makeHeaders = (base?: HeadersInit, t?: string) => {
-      const h = new Headers(base || {});
-      if (t) h.set(GATE_HEADER, t);
-      return h;
-    };
-
-    // first attempt
-    let res = await fetch("/api/explain", {
-      method: init.method,
-      body: init.body ?? null,
-      headers: makeHeaders(init.headers, token),
-    });
-
-    // if gate required/expired -> refresh + retry once
-    if (res.status === 401) {
-      // try to parse to confirm error_code, but even if parsing fails, retry is safe once
-      let isGate = true;
-      try {
-        const peek = (await res.clone().json()) as ExplainResult;
-        isGate = !peek || !("ok" in peek) || (peek as any).error_code === "GATE_REQUIRED";
-      } catch {
-        // assume gate-related 401
-        isGate = true;
-      }
-
-      if (isGate) {
-        const fresh = await getGateToken(true);
-        res = await fetch("/api/explain", {
-          method: init.method,
-          body: init.body ?? null,
-          headers: makeHeaders(init.headers, fresh),
-        });
-      }
-    }
-
-    return res;
-  };
 
   /**
    * ✅ Upload behavior (critical):
@@ -834,7 +686,7 @@ export default function HomePage() {
     setFileStatusLine("");
   };
 
-  /** ✅ Multipart-first explain (now gated) */
+  /** ✅ Multipart-first explain */
   const explain = async () => {
     if (!canExplain) return;
 
@@ -852,13 +704,12 @@ export default function HomePage() {
         // but keep this in case you later decide to allow optional context fields.
         if (text.trim().length) fd.append("input", text);
 
-        res = await callExplainWithGate({
+        res = await fetch("/api/explain", {
           method: "POST",
           body: fd,
-          // NOTE: don't set Content-Type for FormData; browser will set boundary
         });
       } else {
-        res = await callExplainWithGate({
+        res = await fetch("/api/explain", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ input: text }),
@@ -880,7 +731,7 @@ export default function HomePage() {
 
       setResult(data);
 
-      // In paste-mode, this supports "Edit input to rerun" labeling
+      // In paste-mode, this supports "Edit input to rerun"
       setLastRunInput(text);
 
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
@@ -954,8 +805,6 @@ export default function HomePage() {
         ? "Tip: ensure one sheet includes the required headers (or export that sheet to CSV)."
         : result.error_code === "UPSTREAM_FAILURE" || lastHttpStatus === 503
         ? "Tip: try again shortly."
-        : result.error_code === "GATE_REQUIRED" || lastHttpStatus === 401
-        ? "Tip: retry once. If it persists, hard refresh the page."
         : null;
 
     return { msg, hint };
@@ -966,7 +815,7 @@ export default function HomePage() {
     return result.meta;
   }, [result]);
 
-  // ✅ For the button label only (keep your "Edit" UX)
+  // For the button label: treat "file present" as a valid input even if textarea unchanged
   const showEditToRerun = !hasFile && hasResult && !inputChangedSinceRun;
 
   // ✅ Lock textarea whenever file is present (critical)
@@ -1025,9 +874,9 @@ export default function HomePage() {
       <main className="relative max-w-5xl mx-auto px-4 md:px-8 py-4 md:py-6 print:p-0">
         <header className="mb-4 md:mb-6 space-y-2 md:space-y-4 print:hidden">
           <h1 className="text-5xl md:text-[5rem] font-[900] tracking-[-0.06em] leading-[0.85] md:leading-[0.8]">
-            <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Numbers</span>{" "}
+            <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Described.</span>{" "}
             <span className="inline pb-[0.1em] md:pb-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-400 bg-[length:200%_auto] animate-shimmer-text">
-              speak.
+              Then gone.
             </span>
           </h1>
 
@@ -1135,7 +984,9 @@ export default function HomePage() {
           {/* ✅ Inline status line (no banner). Only shows when file is selected. */}
           {hasFile && fileStatusLine && (
             <div className="px-6 md:px-10 pt-4 pb-1">
-              <p className="text-[12px] font-semibold tracking-[-0.01em] text-zinc-700 dark:text-white/70">{fileStatusLine}</p>
+              <p className="text-[12px] font-semibold tracking-[-0.01em] text-zinc-700 dark:text-white/70">
+                {fileStatusLine}
+              </p>
             </div>
           )}
 
@@ -1288,7 +1139,9 @@ export default function HomePage() {
                         "text-[13px] font-semibold tracking-[-0.01em]",
                         "transition-all duration-200 active:scale-[0.99]",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                        theme === "dark" ? "border-white/10 hover:bg-white/5 text-white/90" : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
+                        theme === "dark"
+                          ? "border-white/10 hover:bg-white/5 text-white/90"
+                          : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
                       )}
                     >
                       {copied ? (
@@ -1323,7 +1176,9 @@ export default function HomePage() {
                   <AlertCircle size={24} className="mt-0.5" />
                   <div>
                     <p className="font-semibold tracking-[-0.01em]">{errorUi?.msg ?? result?.error}</p>
-                    {errorUi?.hint && <p className="mt-2 text-[12px] text-rose-600/80 dark:text-rose-300/80">{errorUi.hint}</p>}
+                    {errorUi?.hint && (
+                      <p className="mt-2 text-[12px] text-rose-600/80 dark:text-rose-300/80">{errorUi.hint}</p>
+                    )}
                     {result?.error_code && (
                       <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.22em] opacity-60">
                         {result.error_code}
