@@ -325,6 +325,15 @@ function enforceSameSite(req: Request) {
   const origin = normalizeOriginValue((req.headers.get("origin") ?? "").trim());
   const referer = (req.headers.get("referer") ?? "").trim();
 
+  // ✅ NEW: if allowlist is configured, require browser context
+  // (blocks curl/scripts that omit both Origin and Referer)
+  if (!origin && !referer) {
+    throw Object.assign(new Error("Forbidden request context."), {
+      code: "SERVER_ERROR" as ApiErrorCode,
+      status: 403,
+    });
+  }
+
   if (origin && !allowed.has(origin)) {
     throw Object.assign(new Error("Forbidden origin."), {
       code: "SERVER_ERROR" as ApiErrorCode,
@@ -342,6 +351,7 @@ function enforceSameSite(req: Request) {
     }
   }
 }
+
 
 /**
  * Minimal CORS:
