@@ -1,4 +1,4 @@
-// app/api/auth/start-trial/route.ts
+// src/app/api/auth/start-trial/route.ts
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createHmac, randomBytes } from "crypto";
@@ -7,12 +7,7 @@ import { sendMagicLinkEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-
-const PRICE_ID = process.env.STRIPE_PRICE_ID_MONTHLY!; // your £4.99/month price id
-const APP_ORIGIN = process.env.APP_ORIGIN!; // e.g. https://explain-my-numbers-murex.vercel.app
-const MAGIC_LINK_SECRET = process.env.MAGIC_LINK_SECRET!; // random strong secret
-
+// ✅ Read env lazily (do NOT construct clients at module scope)
 const TRIAL_DAYS = 3;
 const MAGIC_LINK_TTL_SECONDS = 15 * 60; // link valid for 15 minutes
 
@@ -30,10 +25,10 @@ function base64url(input: Buffer | string) {
     .replace(/=+$/g, "");
 }
 
-function signToken(payload: object) {
+function signToken(payload: object, secret: string) {
   const json = JSON.stringify(payload);
   const body = base64url(json);
-  const sig = base64url(createHmac("sha256", MAGIC_LINK_SECRET).update(body).digest());
+  const sig = base64url(createHmac("sha256", secret).update(body).digest());
   return `${body}.${sig}`;
 }
 
@@ -60,24 +55,37 @@ function customerKey(email: string) {
  */
 export async function POST(req: Request) {
   try {
+    // ✅ Read env INSIDE handler (safe for build-time evaluation)
+    const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+    const PRICE_ID = process.env.STRIPE_PRICE_ID_MONTHLY;
+    const APP_ORIGINS = process.env.APP_ORIGINS;
+    const MAGIC_LINK_SECRET = process.env.MAGIC_LINK_SECRET;
+
+    // Email config is validated again inside lib/email.ts, but fail fast here too
+    const RESEND_API_KEY = process.env.RESEND_API_KEY;
+    const EMAIL_FROM = process.env.EMAIL_FROM;
+
     // --- config checks (fail fast) ---
-    if (!process.env.STRIPE_SECRET_KEY) {
+    if (!STRIPE_SECRET_KEY) {
       return NextResponse.json({ ok: false, error: "Missing STRIPE_SECRET_KEY." }, { status: 500 });
     }
     if (!PRICE_ID) {
       return NextResponse.json({ ok: false, error: "Missing STRIPE_PRICE_ID_MONTHLY." }, { status: 500 });
     }
-    if (!APP_ORIGIN) {
-      return NextResponse.json({ ok: false, error: "Missing APP_ORIGIN." }, { status: 500 });
+    if (!APP_ORIGINS) {
+      return NextResponse.json({ ok: false, error: "Missing APP_ORIGINS." }, { status: 500 });
     }
     if (!MAGIC_LINK_SECRET) {
       return NextResponse.json({ ok: false, error: "Missing MAGIC_LINK_SECRET." }, { status: 500 });
     }
-
-    // Email config is validated again inside lib/email.ts, but fail fast here too
-    if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+    if (!RESEND_API_KEY || !EMAIL_FROM) {
       return NextResponse.json({ ok: false, error: "Missing email configuration." }, { status: 500 });
     }
+
+    // ✅ Instantiate clients only after env exists
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
+    const redis = Redis.fromEnv();
 
     const body = (await req.json().catch(() => null)) as { email?: string } | null;
     const rawEmail = (body?.email ?? "").trim().toLowerCase();
@@ -88,8 +96,6 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-
-    const redis = Redis.fromEnv();
 
     // --- 1) Find or create Stripe Customer (Upstash-backed) ---
     let customerId = await redis.get<string>(customerKey(rawEmail));
@@ -141,21 +147,22 @@ export async function POST(req: Request) {
     const nowSec = Math.floor(Date.now() / 1000);
     const expSec = nowSec + MAGIC_LINK_TTL_SECONDS;
 
-    const token = signToken({
-      v: 1,
-      typ: "magic_link",
-      email: rawEmail,
-      stripeCustomerId: customer.id,
-      trialSubscriptionId: sub.id,
-      trialEndsAt: sub.trial_end ?? null, // Stripe is source of truth
-      iat: nowSec,
-      exp: expSec,
-      nonce,
-    });
+    const token = signToken(
+      {
+        v: 1,
+        typ: "magic_link",
+        email: rawEmail,
+        stripeCustomerId: customer.id,
+        trialSubscriptionId: sub.id,
+        trialEndsAt: sub.trial_end ?? null, // Stripe is source of truth
+        iat: nowSec,
+        exp: expSec,
+        nonce,
+      },
+      MAGIC_LINK_SECRET
+    );
 
-    // Your verify route is here (as you confirmed):
-    // app/api/auth/verify-magic-link/route.ts
-    const verifyUrl = `${APP_ORIGIN}/api/auth/verify-magic-link?token=${encodeURIComponent(token)}`;
+    const verifyUrl = `${APP_ORIGINS}/api/auth/verify-magic-link?token=${encodeURIComponent(token)}`;
 
     // --- 4) Email the link ---
     await sendMagicLinkEmail({
@@ -169,7 +176,8 @@ export async function POST(req: Request) {
       message: "Magic link sent.",
       email: maskEmail(rawEmail),
     });
-  } catch {
+  } catch (e) {
+    console.error("start-trial failed:", e);
     // Don’t leak internals
     return NextResponse.json(
       { ok: false, error: "Could not start trial. Please try again.", error_code: "START_TRIAL_FAILED" },

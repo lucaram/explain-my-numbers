@@ -5,7 +5,7 @@ import { createHmac, timingSafeEqual, createHash } from "crypto";
 export const runtime = "nodejs";
 
 const MAGIC_LINK_SECRET = process.env.MAGIC_LINK_SECRET!;
-const APP_ORIGIN = process.env.APP_ORIGIN!;
+const APP_ORIGINS = process.env.APP_ORIGINS!;
 
 // Session cookie (httpOnly). Keep this simple for v1.
 const SESSION_COOKIE_NAME = "emn_session";
@@ -54,7 +54,7 @@ function verifySignedToken(token: string) {
 function safeRedirect(pathWithQuery: string) {
   // We rely on APP_ORIGIN to keep this redirect safe/predictable.
   // Example: https://your-app.vercel.app/?magic=ok
-  return NextResponse.redirect(`${APP_ORIGIN}${pathWithQuery}`);
+  return NextResponse.redirect(`${APP_ORIGINS}${pathWithQuery}`);
 }
 
 export async function GET(req: Request) {
@@ -62,8 +62,8 @@ export async function GET(req: Request) {
     if (!MAGIC_LINK_SECRET) {
       return NextResponse.json({ ok: false, error: "Missing MAGIC_LINK_SECRET." }, { status: 500 });
     }
-    if (!APP_ORIGIN) {
-      return NextResponse.json({ ok: false, error: "Missing APP_ORIGIN." }, { status: 500 });
+    if (!APP_ORIGINS) {
+      return NextResponse.json({ ok: false, error: "Missing APP_ORIGINS." }, { status: 500 });
     }
 
     const url = new URL(req.url);
@@ -126,7 +126,7 @@ export async function GET(req: Request) {
       value: cookieValue,
       httpOnly: true,
       sameSite: "lax",
-      secure: APP_ORIGIN.startsWith("https://"),
+      secure: APP_ORIGINS.startsWith("https://"),
       path: "/",
       maxAge: SESSION_TTL_SECONDS,
     });

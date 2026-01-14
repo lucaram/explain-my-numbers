@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 const PRICE_ID = process.env.STRIPE_PRICE_ID_MONTHLY!;
-const APP_ORIGIN = process.env.APP_ORIGIN!;
+const APP_ORIGINS = process.env.APP_ORIGINS!;
 
 export async function POST(req: Request) {
   try {
@@ -18,8 +18,8 @@ export async function POST(req: Request) {
     if (!PRICE_ID) {
       return NextResponse.json({ ok: false, error: "Missing STRIPE_PRICE_ID_MONTHLY." }, { status: 500 });
     }
-    if (!APP_ORIGIN) {
-      return NextResponse.json({ ok: false, error: "Missing APP_ORIGIN." }, { status: 500 });
+    if (!APP_ORIGINS) {
+      return NextResponse.json({ ok: false, error: "Missing APP_ORIGINS." }, { status: 500 });
     }
 
     // Must have a valid session cookie to upgrade.
@@ -43,8 +43,8 @@ export async function POST(req: Request) {
       customer: ent.stripeCustomerId,
       line_items: [{ price: PRICE_ID, quantity: 1 }],
       allow_promotion_codes: false,
-      success_url: `${APP_ORIGIN}/?billing=success`,
-      cancel_url: `${APP_ORIGIN}/?billing=cancel`,
+      success_url: `${APP_ORIGINS}/?billing=success`,
+      cancel_url: `${APP_ORIGINS}/?billing=cancel`,
       // Optional: improves clarity in Stripe UI
       subscription_data: {
         metadata: {

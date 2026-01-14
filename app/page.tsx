@@ -17,6 +17,9 @@ import {
   Pencil,
   AlertTriangle,
   FileText,
+  CreditCard,
+  Mail,
+  ArrowRight,
 } from "lucide-react";
 
 /** TYPES & UTILS */
@@ -56,6 +59,7 @@ type ExplainErr = {
   ok: false;
   error: string;
   error_code?: string;
+  reason?: string;
 };
 
 type ExplainResult = ExplainOk | ExplainErr;
@@ -337,7 +341,10 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
   });
 
   return (
-    <div id="analysis-content" className={cn("animate-in fade-in slide-in-from-bottom-3 duration-700", "motion-reduce:animate-none")}>
+    <div
+      id="analysis-content"
+      className={cn("animate-in fade-in slide-in-from-bottom-3 duration-700", "motion-reduce:animate-none")}
+    >
       {rendered}
     </div>
   );
@@ -435,7 +442,11 @@ function IconButton({
         "shadow-[0_1px_0_rgba(255,255,255,0.22)] dark:shadow-[0_1px_0_rgba(255,255,255,0.06)]",
         tone === "danger"
           ? "text-rose-500/80 hover:text-rose-500 hover:bg-rose-500/10"
-          : cn("text-zinc-500 dark:text-zinc-400", "hover:bg-black/90 hover:text-white", "dark:hover:bg-white/8 dark:hover:text-white"),
+          : cn(
+              "text-zinc-500 dark:text-zinc-400",
+              "hover:bg-black/90 hover:text-white",
+              "dark:hover:bg-white/8 dark:hover:text-white"
+            ),
         className
       )}
     >
@@ -478,7 +489,9 @@ function WarningsPanel({ warnings, theme }: { warnings?: ExplainOk["warnings"]; 
             className={cn(
               "w-9 h-9 rounded-full flex items-center justify-center",
               "ring-1 ring-inset",
-              theme === "dark" ? "bg-amber-500/10 text-amber-200 ring-amber-500/20" : "bg-amber-500/10 text-amber-800 ring-amber-500/20"
+              theme === "dark"
+                ? "bg-amber-500/10 text-amber-200 ring-amber-500/20"
+                : "bg-amber-500/10 text-amber-800 ring-amber-500/20"
             )}
           >
             <AlertCircle size={18} />
@@ -508,7 +521,11 @@ function WarningsPanel({ warnings, theme }: { warnings?: ExplainOk["warnings"]; 
         {cats.slice(0, 10).map((c) => (
           <div
             key={c.key}
-            className={cn("rounded-2xl border p-4", "transition-colors", theme === "dark" ? "border-white/10 bg-white/[0.02]" : "border-zinc-200 bg-white")}
+            className={cn(
+              "rounded-2xl border p-4",
+              "transition-colors",
+              theme === "dark" ? "border-white/10 bg-white/[0.02]" : "border-zinc-200 bg-white"
+            )}
           >
             <div className="flex items-center justify-between gap-4">
               <p className="text-[13px] font-semibold text-zinc-900 dark:text-zinc-100">{c.label}</p>
@@ -539,7 +556,8 @@ function WarningsPanel({ warnings, theme }: { warnings?: ExplainOk["warnings"]; 
       </div>
 
       <p className="mt-4 text-[11px] text-zinc-500 dark:text-zinc-400">
-        These are automatic checks for possible data issues (format, scale, arithmetic). They can reduce confidence in trend conclusions.
+        These are automatic checks for possible data issues (format, scale, arithmetic). They can reduce confidence in
+        trend conclusions.
       </p>
     </div>
   );
@@ -625,90 +643,104 @@ function PrivacyModalContent({ theme }: { theme: Theme }) {
     <div className="space-y-8">
       {/* Hero section with gradient emphasis */}
       <div className="space-y-3">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border backdrop-blur-sm animate-in fade-in slide-in-from-top-2 duration-500"
+        <div
+          className="inline-flex items-center gap-2 px-3 py-1 rounded-full border backdrop-blur-sm animate-in fade-in slide-in-from-top-2 duration-500"
           style={{
-            background: theme === "dark" 
-              ? "linear-gradient(135deg, rgba(59,130,246,0.08), rgba(16,185,129,0.08))"
-              : "linear-gradient(135deg, rgba(59,130,246,0.06), rgba(16,185,129,0.06))",
-            borderColor: theme === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"
+            background:
+              theme === "dark"
+                ? "linear-gradient(135deg, rgba(59,130,246,0.08), rgba(16,185,129,0.08))"
+                : "linear-gradient(135deg, rgba(59,130,246,0.06), rgba(16,185,129,0.06))",
+            borderColor: theme === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
           }}
         >
-          <span className={cn(
-            "h-1.5 w-1.5 rounded-full animate-pulse",
-            theme === "dark" ? "bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.5)]" : "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]"
-          )} />
+          <span
+            className={cn(
+              "h-1.5 w-1.5 rounded-full animate-pulse",
+              theme === "dark"
+                ? "bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.5)]"
+                : "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]"
+            )}
+          />
           <span className="text-[9px] font-black uppercase tracking-[0.32em] bg-gradient-to-r from-blue-600 to-emerald-600 dark:from-blue-400 dark:to-emerald-400 bg-clip-text text-transparent">
             Zero Retention
           </span>
         </div>
 
-        <h2 className={cn(
-          "text-[28px] md:text-[32px] font-[950] tracking-[-0.04em] leading-[1.1]",
-          "animate-in fade-in slide-in-from-top-3 duration-700"
-        )}
-        style={{animationDelay: '100ms'}}
+        <h2
+          className={cn(
+            "text-[28px] md:text-[32px] font-[950] tracking-[-0.04em] leading-[1.1]",
+            "animate-in fade-in slide-in-from-top-3 duration-700"
+          )}
+          style={{ animationDelay: "100ms" }}
         >
-          <span className={cn("inline", theme === "dark" ? "text-white" : "text-black")}>
-  Privacy.
-</span>
-{" "}
+          <span className={cn("inline", theme === "dark" ? "text-white" : "text-black")}>Privacy.</span>{" "}
           <span className="inline text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-500 bg-[length:200%_auto]">
             Built in.
           </span>
         </h2>
 
-        <p className={cn(
-          "text-[15px] md:text-[16px] font-medium leading-[1.7] tracking-[-0.015em]",
-          "animate-in fade-in slide-in-from-top-4 duration-700",
-          theme === "dark" ? "text-white/70" : "text-zinc-600"
-        )}
-        style={{animationDelay: '200ms'}}
+        <p
+          className={cn(
+            "text-[15px] md:text-[16px] font-medium leading-[1.7] tracking-[-0.015em]",
+            "animate-in fade-in slide-in-from-top-4 duration-700",
+            theme === "dark" ? "text-white/70" : "text-zinc-600"
+          )}
+          style={{ animationDelay: "200ms" }}
         >
           Designed for trust — without compromise.
         </p>
       </div>
 
       {/* Key message with emphasis */}
-      <div className={cn(
-        "rounded-[1.75rem] border p-6 md:p-7 relative overflow-hidden",
-        "animate-in fade-in zoom-in-95 duration-700",
-        "transition-all duration-300 hover:shadow-lg",
-        theme === "dark" 
-          ? "bg-gradient-to-br from-white/[0.03] to-white/[0.01] border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.3)]" 
-          : "bg-gradient-to-br from-blue-50/40 to-emerald-50/30 border-blue-200/40 shadow-[0_20px_50px_rgba(59,130,246,0.08)]"
-      )}
-      style={{animationDelay: '300ms'}}
+      <div
+        className={cn(
+          "rounded-[1.75rem] border p-6 md:p-7 relative overflow-hidden",
+          "animate-in fade-in zoom-in-95 duration-700",
+          "transition-all duration-300 hover:shadow-lg",
+          theme === "dark"
+            ? "bg-gradient-to-br from-white/[0.03] to-white/[0.01] border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.3)]"
+            : "bg-gradient-to-br from-blue-50/40 to-emerald-50/30 border-blue-200/40 shadow-[0_20px_50px_rgba(59,130,246,0.08)]"
+        )}
+        style={{ animationDelay: "300ms" }}
       >
         {/* Subtle gradient overlay */}
-        <div className="absolute inset-0 opacity-40 pointer-events-none"
+        <div
+          className="absolute inset-0 opacity-40 pointer-events-none"
           style={{
-            background: theme === "dark"
-              ? "radial-gradient(600px circle at 30% 20%, rgba(59,130,246,0.08), transparent 60%)"
-              : "radial-gradient(600px circle at 30% 20%, rgba(59,130,246,0.12), transparent 60%)"
+            background:
+              theme === "dark"
+                ? "radial-gradient(600px circle at 30% 20%, rgba(59,130,246,0.08), transparent 60%)"
+                : "radial-gradient(600px circle at 30% 20%, rgba(59,130,246,0.12), transparent 60%)",
           }}
         />
 
         <div className="relative space-y-4">
           <div className="flex items-start gap-3">
-            <div className={cn(
-              "mt-1 flex-shrink-0 w-10 h-10 rounded-2xl flex items-center justify-center transition-transform duration-300 hover:scale-110 hover:rotate-12",
-              theme === "dark" ? "bg-blue-500/10 text-blue-300" : "bg-blue-500/10 text-blue-700"
-            )}>
+            <div
+              className={cn(
+                "mt-1 flex-shrink-0 w-10 h-10 rounded-2xl flex items-center justify-center transition-transform duration-300 hover:scale-110 hover:rotate-12",
+                theme === "dark" ? "bg-blue-500/10 text-blue-300" : "bg-blue-500/10 text-blue-700"
+              )}
+            >
               <Shield size={18} />
             </div>
-            
+
             <div className="space-y-2">
-              <p className={cn(
-                "text-[15px] md:text-[16px] leading-[1.75] font-medium tracking-[-0.015em]",
-                theme === "dark" ? "text-white/90" : "text-zinc-800"
-              )}>
+              <p
+                className={cn(
+                  "text-[15px] md:text-[16px] leading-[1.75] font-medium tracking-[-0.015em]",
+                  theme === "dark" ? "text-white/90" : "text-zinc-800"
+                )}
+              >
                 Your data is processed securely, then <span className="font-bold">immediately discarded</span>.
               </p>
-              
-              <p className={cn(
-                "text-[14px] leading-[1.7] font-medium tracking-[-0.01em]",
-                theme === "dark" ? "text-white/75" : "text-zinc-700"
-              )}>
+
+              <p
+                className={cn(
+                  "text-[14px] leading-[1.7] font-medium tracking-[-0.01em]",
+                  theme === "dark" ? "text-white/75" : "text-zinc-700"
+                )}
+              >
                 We don't store uploads, pasted text, results, or derived insights.
               </p>
             </div>
@@ -717,65 +749,35 @@ function PrivacyModalContent({ theme }: { theme: Theme }) {
       </div>
 
       {/* Feature grid with icons */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-700"
-        style={{animationDelay: '400ms'}}
+      <div
+        className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-700"
+        style={{ animationDelay: "400ms" }}
       >
         {[
-          {
-            icon: "🔒",
-            label: "In-memory processing",
-            desc: "Files are handled in session only",
-            color: "blue"
-          },
-          {
-            icon: "🚫",
-            label: "No retention",
-            desc: "No databases, no history",
-            color: "emerald"
-          },
-          {
-            icon: "🤖",
-            label: "No training",
-            desc: "Data not used for training",
-            color: "violet"
-          },
-          {
-            icon: "💎",
-            label: "No resale",
-            desc: "Your data stays yours",
-            color: "rose"
-          }
+          { icon: "🔒", label: "In-memory processing", desc: "Files are handled in session only" },
+          { icon: "🚫", label: "No retention", desc: "No databases, no history" },
+          { icon: "🤖", label: "No training", desc: "Data not used for training" },
+          { icon: "💎", label: "No resale", desc: "Your data stays yours" },
         ].map((item, idx) => (
           <div
             key={item.label}
             className={cn(
               "group rounded-2xl border p-5 transition-all duration-300 hover:scale-[1.02] hover:shadow-md cursor-default",
               "animate-in fade-in slide-in-from-bottom-2",
-              theme === "dark" 
-                ? "bg-white/[0.02] border-white/10 hover:bg-white/[0.04]" 
-                : "bg-white/60 border-zinc-200 hover:bg-white"
+              theme === "dark" ? "bg-white/[0.02] border-white/10 hover:bg-white/[0.04]" : "bg-white/60 border-zinc-200 hover:bg-white"
             )}
-            style={{animationDelay: `${450 + idx * 50}ms`}}
+            style={{ animationDelay: `${450 + idx * 50}ms` }}
           >
             <div className="flex items-start gap-3">
-              <div className={cn(
-                "text-2xl flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110",
-                theme === "dark" ? "bg-white/5" : "bg-zinc-100/70"
-              )}>
+              <div className={cn("text-2xl flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110", theme === "dark" ? "bg-white/5" : "bg-zinc-100/70")}>
                 {item.icon}
               </div>
-              
+
               <div className="space-y-1 min-w-0">
-                <p className={cn(
-                  "text-[14px] font-bold tracking-[-0.015em]",
-                  theme === "dark" ? "text-white/95" : "text-zinc-900"
-                )}>
+                <p className={cn("text-[14px] font-bold tracking-[-0.015em]", theme === "dark" ? "text-white/95" : "text-zinc-900")}>
                   {item.label}
                 </p>
-                <p className={cn(
-                  "text-[13px] leading-[1.6] font-medium tracking-[-0.01em]",
-                  theme === "dark" ? "text-white/60" : "text-zinc-600"
-                )}>
+                <p className={cn("text-[13px] leading-[1.6] font-medium tracking-[-0.01em]", theme === "dark" ? "text-white/60" : "text-zinc-600")}>
                   {item.desc}
                 </p>
               </div>
@@ -785,44 +787,38 @@ function PrivacyModalContent({ theme }: { theme: Theme }) {
       </div>
 
       {/* Detailed guarantees */}
-      <div className={cn(
-        "rounded-2xl border p-5 md:p-6 space-y-4",
-        "animate-in fade-in slide-in-from-bottom-3 duration-700",
-        theme === "dark" ? "bg-white/[0.015] border-white/8" : "bg-zinc-50/50 border-zinc-200/70"
-      )}
-      style={{animationDelay: '600ms'}}
+      <div
+        className={cn(
+          "rounded-2xl border p-5 md:p-6 space-y-4",
+          "animate-in fade-in slide-in-from-bottom-3 duration-700",
+          theme === "dark" ? "bg-white/[0.015] border-white/8" : "bg-zinc-50/50 border-zinc-200/70"
+        )}
+        style={{ animationDelay: "600ms" }}
       >
         <div className="flex items-center gap-2">
-          <span className={cn(
-            "h-1 w-1 rounded-full",
-            theme === "dark" ? "bg-blue-400/60" : "bg-blue-600/50"
-          )} />
-          <h3 className={cn(
-            "text-[11px] font-black uppercase tracking-[0.28em]",
-            "bg-gradient-to-r from-blue-600 to-emerald-600 dark:from-blue-400 dark:to-emerald-400 bg-clip-text text-transparent"
-          )}>
+          <span className={cn("h-1 w-1 rounded-full", theme === "dark" ? "bg-blue-400/60" : "bg-blue-600/50")} />
+          <h3 className={cn("text-[11px] font-black uppercase tracking-[0.28em]", "bg-gradient-to-r from-blue-600 to-emerald-600 dark:from-blue-400 dark:to-emerald-400 bg-clip-text text-transparent")}>
             Our Commitments
           </h3>
         </div>
 
-        <ul className={cn(
-          "space-y-3.5 text-[13px] md:text-[14px] leading-[1.7] font-medium tracking-[-0.01em]",
-          theme === "dark" ? "text-white/75" : "text-zinc-700"
-        )}>
+        <ul className={cn("space-y-3.5 text-[13px] md:text-[14px] leading-[1.7] font-medium tracking-[-0.01em]", theme === "dark" ? "text-white/75" : "text-zinc-700")}>
           {[
             "Session-only processing — your data never touches persistent storage",
             "Automatic cleanup — all traces removed when you close this page",
             "No model training — we never use your data to improve our models",
             "No third-party sharing — your information stays completely private",
-            "No analytics tracking — we don’t track the contents of what you analyze "
+            "No analytics tracking — we don’t track the contents of what you analyze ",
           ].map((text, i) => (
             <li key={i} className="flex gap-3 group">
-              <span className={cn(
-                "mt-[7px] h-1.5 w-1.5 rounded-full flex-shrink-0 transition-all duration-300 group-hover:scale-125",
-                theme === "dark" 
-                  ? "bg-gradient-to-r from-blue-400 to-emerald-400 shadow-[0_0_8px_rgba(59,130,246,0.4)]" 
-                  : "bg-gradient-to-r from-blue-500 to-emerald-500 shadow-[0_0_8px_rgba(59,130,246,0.3)]"
-              )} />
+              <span
+                className={cn(
+                  "mt-[7px] h-1.5 w-1.5 rounded-full flex-shrink-0 transition-all duration-300 group-hover:scale-125",
+                  theme === "dark"
+                    ? "bg-gradient-to-r from-blue-400 to-emerald-400 shadow-[0_0_8px_rgba(59,130,246,0.4)]"
+                    : "bg-gradient-to-r from-blue-500 to-emerald-500 shadow-[0_0_8px_rgba(59,130,246,0.3)]"
+                )}
+              />
               <span className="transition-colors duration-300 group-hover:text-current">{text}</span>
             </li>
           ))}
@@ -830,27 +826,20 @@ function PrivacyModalContent({ theme }: { theme: Theme }) {
       </div>
 
       {/* Final reassurance */}
-      <div className={cn(
-        "flex items-start gap-3 p-4 rounded-2xl border",
-        "animate-in fade-in slide-in-from-bottom-2 duration-700",
-        theme === "dark" 
-          ? "bg-emerald-500/[0.03] border-emerald-500/15" 
-          : "bg-emerald-50/50 border-emerald-200/50"
-      )}
-      style={{animationDelay: '700ms'}}
+      <div
+        className={cn(
+          "flex items-start gap-3 p-4 rounded-2xl border",
+          "animate-in fade-in slide-in-from-bottom-2 duration-700",
+          theme === "dark" ? "bg-emerald-500/[0.03] border-emerald-500/15" : "bg-emerald-50/50 border-emerald-200/50"
+        )}
+        style={{ animationDelay: "700ms" }}
       >
         <span className="text-xl mt-0.5">✓</span>
         <div>
-          <p className={cn(
-            "text-[13px] md:text-[14px] leading-[1.7] font-semibold tracking-[-0.01em]",
-            theme === "dark" ? "text-emerald-200" : "text-emerald-900"
-          )}>
+          <p className={cn("text-[13px] md:text-[14px] leading-[1.7] font-semibold tracking-[-0.01em]", theme === "dark" ? "text-emerald-200" : "text-emerald-900")}>
             When you leave, the session is cleared.
           </p>
-          <p className={cn(
-            "text-[12px] md:text-[13px] leading-[1.7] font-medium mt-1",
-            theme === "dark" ? "text-emerald-300/70" : "text-emerald-800/70"
-          )}>
+          <p className={cn("text-[12px] md:text-[13px] leading-[1.7] font-medium mt-1", theme === "dark" ? "text-emerald-300/70" : "text-emerald-800/70")}>
             Your data stays yours. Always.
           </p>
         </div>
@@ -858,7 +847,6 @@ function PrivacyModalContent({ theme }: { theme: Theme }) {
     </div>
   );
 }
-
 
 export default function HomePage() {
   const [theme, setTheme] = useState<Theme>("light");
@@ -878,6 +866,16 @@ export default function HomePage() {
   // ✅ NEW: show why "Explain" won't run (instead of disabling the button)
   const [explainBlockReason, setExplainBlockReason] = useState<string>("");
 
+  // ✅ NEW: Paywall state + subscribe flow
+  const [paywall, setPaywall] = useState<null | { message: string; reason?: string }>(null);
+  const [isSubscribing, setIsSubscribing] = useState(false);
+
+  // ✅ NEW: Magic link request (secondary CTA)
+  const [magicOpen, setMagicOpen] = useState(false);
+  const [magicEmail, setMagicEmail] = useState("");
+  const [magicBusy, setMagicBusy] = useState(false);
+  const [magicNote, setMagicNote] = useState<string>(""); // success / error, shown inline
+
   const gateRef = useRef<{ token: string; expMs: number } | null>(null);
   const gateInFlight = useRef<Promise<string> | null>(null);
 
@@ -896,11 +894,7 @@ export default function HomePage() {
   const canExplain = !loading && !overLimit && (hasFile || (hasText && (!hasResult || inputChangedSinceRun)));
 
   /** -------------------------------
-   * ✅ Smooth modal open/close state machine
-   * - avoids "snap" on close by keeping DOM mounted during exit animation
-   * - locks scroll
-   * - closes on Esc
-   * - focus goes into modal on open
+   * ✅ Smooth modal open/close state machine (Privacy)
    * -------------------------------- */
   const [privacyOpen, setPrivacyOpen] = useState(false); // desired state
   const [privacyMounted, setPrivacyMounted] = useState(false); // actually in DOM
@@ -919,7 +913,6 @@ export default function HomePage() {
     if (privacyOpen) {
       lastActiveElementRef.current = (document.activeElement as HTMLElement) ?? null;
       setPrivacyMounted(true);
-      // allow next paint before toggling enter→open for buttery transitions
       requestAnimationFrame(() => {
         setPrivacyPhase("enter");
         requestAnimationFrame(() => setPrivacyPhase("open"));
@@ -927,13 +920,11 @@ export default function HomePage() {
       return;
     }
 
-    // closing
     if (privacyMounted) {
       setPrivacyPhase("exit");
       const t = window.setTimeout(() => {
         setPrivacyMounted(false);
         setPrivacyPhase("enter");
-        // restore focus
         lastActiveElementRef.current?.focus?.();
       }, EXIT_MS);
       return () => window.clearTimeout(t);
@@ -956,7 +947,6 @@ export default function HomePage() {
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") closePrivacy();
-      // tiny focus trap (Tab stays inside modal) — lightweight, no deps
       if (e.key === "Tab") {
         const root = privacyPanelRef.current;
         if (!root) return;
@@ -992,7 +982,6 @@ export default function HomePage() {
   // focus into modal after open
   useEffect(() => {
     if (!privacyMounted) return;
-    // focus the close button or panel
     window.setTimeout(() => privacyPanelRef.current?.focus?.(), 0);
   }, [privacyMounted]);
 
@@ -1010,6 +999,45 @@ export default function HomePage() {
   useEffect(() => {
     const fromSess = readGateFromSession();
     if (fromSess) gateRef.current = fromSess;
+  }, []);
+
+  // ✅ Nice little inline banners from query params (minimal, no UI restructuring)
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const magic = url.searchParams.get("magic"); // ok | error
+    const billing = url.searchParams.get("billing"); // success | cancel
+
+    if (billing === "success") {
+      setPaywall(null);
+      setMagicNote("");
+      setMagicOpen(false);
+      setExplainBlockReason("Subscription active. You can continue.");
+      window.setTimeout(() => setExplainBlockReason(""), 2200);
+    }
+
+    if (billing === "cancel") {
+      setExplainBlockReason("Checkout cancelled.");
+      window.setTimeout(() => setExplainBlockReason(""), 1800);
+    }
+
+    if (magic === "ok") {
+      setMagicNote("Signed in. You can continue.");
+      setMagicOpen(false);
+      window.setTimeout(() => setMagicNote(""), 2200);
+    }
+
+    if (magic === "error") {
+      const reason = url.searchParams.get("reason") ?? "unknown";
+      setMagicNote(`Magic link failed (${reason}). Try requesting a new one.`);
+    }
+
+    // Keep URL clean (no reload)
+    if (magic || billing) {
+      url.searchParams.delete("magic");
+      url.searchParams.delete("reason");
+      url.searchParams.delete("billing");
+      window.history.replaceState({}, "", url.toString());
+    }
   }, []);
 
   const getGateToken = async (forceRefresh = false): Promise<string> => {
@@ -1111,6 +1139,11 @@ export default function HomePage() {
     setLastHttpStatus(null);
     setExplainBlockReason("");
 
+    // ✅ paywall should clear when user changes inputs
+    setPaywall(null);
+    setMagicOpen(false);
+    setMagicNote("");
+
     setFileStatusLine("File selected — paste is cleared to avoid mixing inputs.");
 
     e.target.value = "";
@@ -1126,15 +1159,79 @@ export default function HomePage() {
     setLastHttpStatus(null);
     setExplainBlockReason("");
 
+    // ✅ keep paywall UI, but allow the user to paste/edit easily
+    // (if they’re paywalled, they’ll still see it once they click Explain)
     setText(savedPaste || "");
     setSavedPaste("");
     setFileStatusLine("");
   };
 
+  /** ✅ Subscribe (Stripe Checkout) */
+  async function handleSubscribe() {
+    try {
+      setIsSubscribing(true);
+      setExplainBlockReason("");
+      setMagicNote("");
+
+      const r = await fetch("/api/billing/create-checkout-session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      const body = await r.json().catch(() => null);
+
+      if (!r.ok || !body?.url) {
+        throw new Error(body?.error || "Could not start checkout.");
+      }
+
+      window.location.href = body.url;
+    } catch (e) {
+      console.error(e);
+      setExplainBlockReason("Could not open checkout. Please try again.");
+    } finally {
+      setIsSubscribing(false);
+    }
+  }
+
+  /** ✅ Secondary CTA: request a new magic link (start trial / re-auth) */
+  async function handleSendMagicLink() {
+    try {
+      setMagicBusy(true);
+      setMagicNote("");
+
+      const email = magicEmail.trim().toLowerCase();
+      if (!email || !email.includes("@")) {
+        setMagicNote("Enter a valid email address.");
+        return;
+      }
+
+      const r = await fetch("/api/auth/start-trial", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+
+      const body = await r.json().catch(() => null);
+
+      if (!r.ok || !body?.ok) {
+        throw new Error(body?.error || "Could not send magic link.");
+      }
+
+      setMagicNote("Magic link sent. Check your inbox.");
+    } catch (e) {
+      console.error(e);
+      setMagicNote("Could not send magic link. Please try again.");
+    } finally {
+      setMagicBusy(false);
+    }
+  }
+
   /** ✅ Explain is ALWAYS clickable; we enforce validation inside. */
   const explain = async () => {
     // clear any previous reason
     setExplainBlockReason("");
+    setMagicNote("");
 
     // Provide a friendly reason instead of disabling the button (no forbidden cursor)
     if (loading) {
@@ -1153,7 +1250,6 @@ export default function HomePage() {
     }
 
     if (!hasFile && hasResult && !inputChangedSinceRun) {
-      // Your UI says "Edit" in this state; clicking Explain should guide user.
       setExplainBlockReason("Edit your input to re-run.");
       return;
     }
@@ -1180,6 +1276,19 @@ export default function HomePage() {
 
       setLastHttpStatus(res.status);
 
+      // ✅ PAYWALL: detect 402 + NO_ENTITLEMENT
+      if (res.status === 402) {
+        const body = (await res.json().catch(() => null)) as any;
+        if (body?.error_code === "NO_ENTITLEMENT") {
+          setPaywall({
+            message: body?.error ?? "Your free trial has ended. Subscribe to continue.",
+            reason: body?.reason,
+          });
+          setResult(null);
+          return;
+        }
+      }
+
       let data: ExplainResult;
       try {
         data = (await res.json()) as ExplainResult;
@@ -1189,6 +1298,11 @@ export default function HomePage() {
 
       if (!res.ok && (data as any)?.ok === true) {
         data = { ok: false, error: "Request failed. Please try again.", error_code: "SERVER_ERROR" };
+      }
+
+      // ✅ Success clears paywall
+      if (res.ok && (data as any)?.ok === true) {
+        setPaywall(null);
       }
 
       setResult(data);
@@ -1216,6 +1330,12 @@ export default function HomePage() {
     setLastRunInput("");
     setLastHttpStatus(null);
     setExplainBlockReason("");
+
+    // ✅ reset also clears paywall UI
+    setPaywall(null);
+    setMagicOpen(false);
+    setMagicEmail("");
+    setMagicNote("");
   };
 
   const evidence = useMemo(() => {
@@ -1316,7 +1436,9 @@ export default function HomePage() {
             <div
               className={cn(
                 "h-8 w-8 rounded-2xl grid place-items-center",
-                theme === "dark" ? "bg-white/[0.05] border border-white/10" : "bg-white/80 border border-zinc-200 shadow-[0_10px_30px_rgba(0,0,0,0.06)]"
+                theme === "dark"
+                  ? "bg-white/[0.05] border border-white/10"
+                  : "bg-white/80 border border-zinc-200 shadow-[0_10px_30px_rgba(0,0,0,0.06)]"
               )}
               aria-hidden="true"
             >
@@ -1357,6 +1479,7 @@ export default function HomePage() {
             </h1>
           </div>
         </header>
+        <br />
 
         {/* Input card */}
         <div
@@ -1467,7 +1590,213 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* ✅ Inline “why it didn’t run” line — now fades/animates elegantly */}
+          {/* ✅ Paywall UI block (minimal + premium) */}
+          {paywall && (
+            <div className="px-6 md:px-10 pt-5 pb-2">
+              <div
+                className={cn(
+                  "rounded-[2rem] border p-5 md:p-6 overflow-hidden relative",
+                  "shadow-[0_18px_60px_rgba(0,0,0,0.08)] dark:shadow-[0_28px_90px_rgba(0,0,0,0.45)]",
+                  theme === "dark" ? "bg-white/[0.02] border-amber-500/20" : "bg-amber-50/60 border-amber-200"
+                )}
+              >
+                <div
+                  className={cn(
+                    "pointer-events-none absolute inset-0 opacity-60",
+                    theme === "dark"
+                      ? "bg-[radial-gradient(800px_circle_at_10%_0%,rgba(245,158,11,0.12),transparent_60%)]"
+                      : "bg-[radial-gradient(800px_circle_at_10%_0%,rgba(245,158,11,0.18),transparent_60%)]"
+                  )}
+                />
+
+                <div className="relative">
+                  <div className="flex items-start gap-4">
+                    <div
+                      className={cn(
+                        "w-10 h-10 rounded-2xl flex items-center justify-center ring-1 ring-inset",
+                        theme === "dark"
+                          ? "bg-amber-500/10 text-amber-200 ring-amber-500/20"
+                          : "bg-amber-500/10 text-amber-900 ring-amber-500/20"
+                      )}
+                      aria-hidden="true"
+                    >
+                      <CreditCard size={18} />
+                    </div>
+
+                    <div className="min-w-0">
+                      <p
+                        className={cn(
+                          "text-[11px] font-black uppercase tracking-[0.28em]",
+                          theme === "dark" ? "text-amber-200/80" : "text-amber-900/70"
+                        )}
+                      >
+                        Subscription required
+                      </p>
+                      <p className={cn("mt-2 text-[13px] md:text-[14px] font-semibold tracking-[-0.01em]", theme === "dark" ? "text-white/90" : "text-zinc-900")}>
+                        {paywall.message}
+                      </p>
+
+                      {paywall.reason && (
+                        <p className={cn("mt-2 text-[12px] leading-relaxed font-medium", theme === "dark" ? "text-white/65" : "text-zinc-700")}>
+                          {paywall.reason}
+                        </p>
+                      )}
+
+                      <div className="mt-4 flex flex-col sm:flex-row gap-2.5">
+                        <button
+                          type="button"
+                          onClick={handleSubscribe}
+                          disabled={isSubscribing}
+                          className={cn(
+                            "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl",
+                            "text-[13px] font-semibold tracking-[-0.01em]",
+                            "transition-all duration-200 active:scale-[0.99]",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                            "shadow-[0_18px_60px_rgba(0,0,0,0.12)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)]",
+                            theme === "dark" ? "bg-white text-black hover:opacity-90" : "bg-black text-white hover:opacity-90",
+                            isSubscribing && "opacity-85"
+                          )}
+                        >
+                          {isSubscribing ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />
+                              <span>Opening checkout…</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>Subscribe £4.99/mo</span>
+                              <ArrowRight size={16} className="opacity-80" />
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setMagicOpen((v) => !v)}
+                          className={cn(
+                            "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl border",
+                            "text-[13px] font-semibold tracking-[-0.01em]",
+                            "transition-all duration-200 active:scale-[0.99]",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                            theme === "dark"
+                              ? "border-white/10 bg-white/[0.02] hover:bg-white/6 text-white/85"
+                              : "border-zinc-200 bg-white/70 hover:bg-white text-zinc-900"
+                          )}
+                          title="If you lost your session, request a new link"
+                        >
+                          <Mail size={16} className="opacity-80" />
+                          <span>Email me a magic link</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaywall(null);
+                            setMagicOpen(false);
+                            setMagicNote("");
+                          }}
+                          className={cn(
+                            "inline-flex items-center justify-center px-5 py-3 rounded-2xl",
+                            "text-[13px] font-semibold tracking-[-0.01em]",
+                            "transition-all duration-200 active:scale-[0.99]",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                            theme === "dark" ? "text-white/70 hover:bg-white/5" : "text-zinc-700 hover:bg-zinc-100"
+                          )}
+                        >
+                          Not now
+                        </button>
+                      </div>
+
+                      {/* Expandable magic link mini-form */}
+                      {magicOpen && (
+                        <div
+                          className={cn(
+                            "mt-4 rounded-2xl border p-4 md:p-5 emn-fade",
+                            theme === "dark" ? "border-white/10 bg-white/[0.02]" : "border-zinc-200 bg-white/70"
+                          )}
+                        >
+                          <div className="flex flex-col md:flex-row md:items-center gap-2.5">
+                            <div className="flex-1">
+                              <label className={cn("text-[10px] font-black uppercase tracking-[0.24em]", theme === "dark" ? "text-white/60" : "text-zinc-600")}>
+                                Email
+                              </label>
+                              <input
+                                value={magicEmail}
+                                onChange={(e) => setMagicEmail(e.target.value)}
+                                placeholder="you@company.com"
+                                className={cn(
+                                  "mt-2 w-full rounded-2xl border bg-transparent px-4 py-3 outline-none",
+                                  "text-[13px] font-semibold tracking-[-0.01em]",
+                                  "focus-visible:ring-2 focus-visible:ring-blue-500/35 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                                  theme === "dark"
+                                    ? "border-white/10 text-white/90 placeholder:text-white/25"
+                                    : "border-zinc-200 text-zinc-900 placeholder:text-zinc-400"
+                                )}
+                                inputMode="email"
+                                autoComplete="email"
+                              />
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={handleSendMagicLink}
+                              disabled={magicBusy}
+                              className={cn(
+                                "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl",
+                                "text-[13px] font-semibold tracking-[-0.01em]",
+                                "transition-all duration-200 active:scale-[0.99]",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                                "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.20)]",
+                                theme === "dark"
+                                  ? "bg-white text-black hover:opacity-90"
+                                  : "bg-zinc-900 text-white hover:opacity-90",
+                                "md:mt-7"
+                              )}
+                            >
+                              {magicBusy ? (
+                                <>
+                                  <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />
+                                  <span>Sending…</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span>Send link</span>
+                                  <ArrowRight size={16} className="opacity-80" />
+                                </>
+                              )}
+                            </button>
+                          </div>
+
+                          {!!magicNote && (
+                            <div className="mt-3">
+                              <div
+                                className={cn(
+                                  "inline-flex items-center gap-2 rounded-2xl border px-3.5 py-2",
+                                  "text-[12px] font-semibold tracking-[-0.01em]",
+                                  theme === "dark"
+                                    ? "bg-white/[0.02] border-white/10 text-white/70"
+                                    : "bg-white border-zinc-200 text-zinc-700"
+                                )}
+                              >
+                                <span className={cn("h-1.5 w-1.5 rounded-full", theme === "dark" ? "bg-white/35" : "bg-zinc-400")} />
+                                <span>{magicNote}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          <p className={cn("mt-3 text-[11px] leading-relaxed", theme === "dark" ? "text-white/45" : "text-zinc-500")}>
+                            Use this if your session expired or you opened the app on a new device.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ Inline “why it didn’t run” line — fades/animates elegantly */}
           {!!explainBlockReason && (
             <div className="px-6 md:px-10 pt-4 pb-1">
               <div
@@ -1506,6 +1835,8 @@ export default function HomePage() {
               if (textareaLocked) return;
               setText(e.target.value);
               setExplainBlockReason("");
+              // keep paywall visible, but avoid stale magic note
+              setMagicNote("");
             }}
             disabled={textareaLocked}
             placeholder={textareaLocked ? "" : "Paste your data here…"}
@@ -1623,10 +1954,7 @@ export default function HomePage() {
                       <div className="w-9 h-9 rounded-2xl bg-blue-500 flex items-center justify-center print:hidden shadow-[0_18px_60px_rgba(59,130,246,0.35)]">
                         <BarChart3 size={16} className="text-white" />
                       </div>
-                      <h3 className="text-[22px] md:text-2xl font-black tracking-[-0.02em]">
-                        Synthesis
-
-                      </h3>
+                      <h3 className="text-[22px] md:text-2xl font-black tracking-[-0.02em]">Synthesis</h3>
                     </div>
 
                     <ElegantPill level={evidence.level} />
@@ -1646,14 +1974,17 @@ export default function HomePage() {
                         "transition-all duration-200 active:scale-[0.99]",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
                         "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.20)]",
-                        theme === "dark" ? "border-white/10 hover:bg-white/6 text-white/90" : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
+                        theme === "dark"
+                          ? "border-white/10 hover:bg-white/6 text-white/90"
+                          : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
                       )}
                     >
-                      {copied ? (
+                                            {copied ? (
                         <span className="opacity-70">Copied</span>
                       ) : (
                         <>
-                          <Copy size={16} /> Copy
+                          <Copy size={16} className="opacity-80" />
+                          <span>Copy</span>
                         </>
                       )}
                     </button>
@@ -1662,45 +1993,116 @@ export default function HomePage() {
                       type="button"
                       onClick={exportPdf}
                       className={cn(
+                        "inline-flex items-center gap-2 px-5 py-3 rounded-2xl border",
+                        "text-[13px] font-semibold tracking-[-0.01em]",
+                        "transition-all duration-200 active:scale-[0.99]",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                        "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.20)]",
+                        theme === "dark"
+                          ? "border-white/10 hover:bg-white/6 text-white/90"
+                          : "border-zinc-200 hover:bg-zinc-100 text-zinc-900"
+                      )}
+                    >
+                      <FileText size={16} className="opacity-80" />
+                      <span>Export PDF</span>
+                    </button>
+
+                    <div className="flex-1" />
+
+                    <button
+                      type="button"
+                      onClick={openPrivacy}
+                      className={cn(
                         "inline-flex items-center gap-2 px-5 py-3 rounded-2xl",
                         "text-[13px] font-semibold tracking-[-0.01em]",
                         "transition-all duration-200 active:scale-[0.99]",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                        "shadow-[0_18px_60px_rgba(0,0,0,0.12)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)]",
-                        theme === "dark" ? "bg-white text-black hover:opacity-90" : "bg-zinc-900 text-white hover:opacity-90"
+                        theme === "dark" ? "text-white/70 hover:bg-white/5" : "text-zinc-700 hover:bg-zinc-100"
                       )}
-                      title="Print / Save as PDF"
                     >
-                      <FileText size={16} /> Export PDF
+                      <Shield size={16} className="opacity-80" />
+                      <span>Privacy</span>
                     </button>
                   </div>
                 </div>
               ) : (
-                <div
-                  className={cn(
-                    "flex items-start gap-4 p-8 rounded-[2rem] border animate-shake",
-                    theme === "dark" ? "bg-rose-500/6 border-rose-500/20 text-rose-200" : "bg-rose-500/6 border-rose-500/15 text-rose-700"
-                  )}
-                >
-                  <AlertCircle size={24} className="mt-0.5" />
-                  <div>
-                    <p className="font-semibold tracking-[-0.01em]">{errorUi?.msg ?? result?.error}</p>
-                    {errorUi?.hint && <p className="mt-2 text-[12px] opacity-80">{errorUi.hint}</p>}
-                    {result?.error_code && (
-                      <p className="mt-2 text-[10px] font-black uppercase tracking-[0.22em] opacity-60">
-                        {result.error_code}
-                        {lastHttpStatus ? ` • HTTP ${lastHttpStatus}` : ""}
-                      </p>
-                    )}
+                <div className="space-y-6">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                      <div
+                        className={cn(
+                          "w-10 h-10 rounded-2xl flex items-center justify-center ring-1 ring-inset",
+                          theme === "dark"
+                            ? "bg-rose-500/10 text-rose-200 ring-rose-500/20"
+                            : "bg-rose-500/10 text-rose-700 ring-rose-500/20"
+                        )}
+                        aria-hidden="true"
+                      >
+                        <AlertTriangle size={18} />
+                      </div>
+
+                      <div>
+                        <p className={cn("text-[11px] font-black uppercase tracking-[0.28em]", theme === "dark" ? "text-rose-200/75" : "text-rose-700/70")}>
+                          Couldn’t complete
+                        </p>
+
+                        <p className={cn("mt-2 text-[13px] md:text-[14px] font-semibold tracking-[-0.01em]", theme === "dark" ? "text-white/90" : "text-zinc-900")}>
+                          {errorUi?.msg ?? "Something went wrong."}
+                        </p>
+
+                        {errorUi?.hint && (
+                          <p className={cn("mt-2 text-[12px] leading-relaxed font-medium", theme === "dark" ? "text-white/60" : "text-zinc-700")}>
+                            {errorUi.hint}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={reset}
+                      className={cn(
+                        "inline-flex items-center gap-2 px-4 py-2 rounded-2xl border",
+                        "text-[13px] font-semibold tracking-[-0.01em]",
+                        "transition-all duration-200 active:scale-[0.99]",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                        theme === "dark"
+                          ? "border-white/10 bg-white/[0.02] hover:bg-white/6 text-white/85"
+                          : "border-zinc-200 bg-white/70 hover:bg-white text-zinc-900"
+                      )}
+                    >
+                      <RotateCcw size={16} className="opacity-80" />
+                      <span>Reset</span>
+                    </button>
                   </div>
+
+                  {/* When paywall is active we already show the block above; keep error area clean */}
+                  {!paywall && (
+                    <div className={cn("rounded-2xl border p-5 md:p-6", theme === "dark" ? "border-white/10 bg-white/[0.02]" : "border-zinc-200 bg-white/70")}>
+                      <p className={cn("text-[11px] font-black uppercase tracking-[0.28em]", theme === "dark" ? "text-white/60" : "text-zinc-600")}>
+                        Quick checks
+                      </p>
+                      <ul className={cn("mt-3 space-y-2 text-[13px] leading-relaxed font-medium", theme === "dark" ? "text-white/75" : "text-zinc-700")}>
+                        <li className="pl-6 relative before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40">
+                          If you pasted data, ensure it’s tabular (CSV/TSV style) with a header row.
+                        </li>
+                        <li className="pl-6 relative before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40">
+                          If you uploaded Excel, try exporting the relevant sheet to CSV.
+                        </li>
+                        <li className="pl-6 relative before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40">
+                          If it’s rate-limited, wait a minute and retry.
+                        </li>
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </div>
         )}
-      </main>
-
-      <footer className="w-full max-w-5xl mx-auto px-4 md:px-8 pb-2 mt-1 print:hidden">
+</main>
+        {/* Footer */}
+       <footer className="w-full max-w-5xl mx-auto px-4 md:px-8 pb-2 mt-1 print:hidden">
         <div className="pt-3 flex flex-row justify-between items-center gap-3">
           <div className="flex items-center gap-6">
             <p className="text-[10px] font-black tracking-[0.26em] uppercase opacity-55">© 2026 Explain Ltd</p>
@@ -2008,3 +2410,4 @@ export default function HomePage() {
     </div>
   );
 }
+
