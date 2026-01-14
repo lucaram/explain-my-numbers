@@ -1397,12 +1397,15 @@ export default function HomePage() {
   const textareaLocked = hasFile;
 
   return (
-    <div
-      className={cn(
-        "relative transition-colors duration-700",
-        theme === "dark" ? "bg-[#050505] text-white" : "bg-[#fafafa] text-zinc-900"
-      )}
-    >
+<div
+  className={cn(
+    "relative min-h-screen w-full overflow-x-hidden transition-colors duration-700",
+    theme === "dark"
+      ? "bg-[#050505] text-white"
+      : "bg-[#fafafa] text-zinc-900"
+  )}
+>
+
       {/* Background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none print:hidden">
         <div
