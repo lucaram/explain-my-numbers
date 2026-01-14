@@ -1,8 +1,9 @@
-// src/app/api/auth/start-trial/route.ts
+// app/api/auth/start-trial/route.ts
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createHmac, randomBytes } from "crypto";
-import { sendMagicLinkEmail } from "@/lib/email"; // (we’ll create this in file #5)
+import { Redis } from "@upstash/redis";
+import { sendMagicLinkEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -43,16 +44,23 @@ function maskEmail(email: string) {
   return `${user}@${dom}`;
 }
 
+// Upstash keying (prevents duplicate Stripe customers per email)
+function customerKey(email: string) {
+  return `emn:cus:email:${email}`;
+}
+
 /**
  * POST body: { email: string }
  *
  * Creates (or reuses) a Stripe Customer, then creates a 3-day trial subscription
- * that auto-cancels at trial end (no card collected, no auto-charge).
+ * that stops at trial end (no card collected, no auto-charge).
  *
- * Sends a magic link containing a signed token, which file #2 will verify and set a session cookie.
+ * Sends a magic link containing a signed token, which verify-magic-link will validate
+ * and set the session cookie used by entitlements.
  */
 export async function POST(req: Request) {
   try {
+    // --- config checks (fail fast) ---
     if (!process.env.STRIPE_SECRET_KEY) {
       return NextResponse.json({ ok: false, error: "Missing STRIPE_SECRET_KEY." }, { status: 500 });
     }
@@ -66,6 +74,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Missing MAGIC_LINK_SECRET." }, { status: 500 });
     }
 
+    // Email config is validated again inside lib/email.ts, but fail fast here too
+    if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) {
+      return NextResponse.json({ ok: false, error: "Missing email configuration." }, { status: 500 });
+    }
+
     const body = (await req.json().catch(() => null)) as { email?: string } | null;
     const rawEmail = (body?.email ?? "").trim().toLowerCase();
 
@@ -76,18 +89,19 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1) Find or create Stripe Customer
-    // We try Customer Search first; if it fails (not enabled / not available), we just create a new customer.
+    const redis = Redis.fromEnv();
+
+    // --- 1) Find or create Stripe Customer (Upstash-backed) ---
+    let customerId = await redis.get<string>(customerKey(rawEmail));
     let customer: Stripe.Customer | null = null;
 
-    try {
-      const found = await stripe.customers.search({
-        query: `email:'${rawEmail.replace(/'/g, "\\'")}'`,
-        limit: 1,
-      });
-      customer = (found.data?.[0] as Stripe.Customer | undefined) ?? null;
-    } catch {
-      customer = null;
+    if (customerId) {
+      try {
+        const got = (await stripe.customers.retrieve(customerId)) as Stripe.Customer | Stripe.DeletedCustomer;
+        customer = (got as any)?.deleted ? null : (got as Stripe.Customer);
+      } catch {
+        customer = null;
+      }
     }
 
     if (!customer) {
@@ -98,33 +112,31 @@ export async function POST(req: Request) {
           created_by: "start_trial",
         },
       });
+
+      // cache customer id for 1 year (adjust if you want)
+      await redis.set(customerKey(rawEmail), customer.id, { ex: 60 * 60 * 24 * 365 });
     }
 
-    // 2) Create a 3-day trial subscription (no payment method), and ensure it cancels at trial end.
-    // This matches your promise: no card, no surprise billing, hard stop at expiry.
-    const sub = await stripe.subscriptions.create({
-      customer: customer.id,
-      items: [{ price: PRICE_ID, quantity: 1 }],
-      trial_period_days: TRIAL_DAYS,
-      // We’ll set cancel_at after we know trial_end (Stripe returns it).
-      metadata: {
-        product: "explain_my_numbers",
-        phase: "trial_no_card",
-      },
-    });
+    // --- 2) Create a 3-day trial subscription (idempotent, no card, hard stop) ---
+    // Prevent duplicates on retries by using a stable per-day idempotency key.
+    const day = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const idempotencyKey = `emn:start_trial:${rawEmail}:${day}`;
 
-    if (sub.trial_end) {
-      // Important: cancel at trial end so Stripe never attempts to invoice/charge.
-      await stripe.subscriptions.update(sub.id, {
-        cancel_at: sub.trial_end,
+    const sub = await stripe.subscriptions.create(
+      {
+        customer: customer.id,
+        items: [{ price: PRICE_ID, quantity: 1 }],
+        trial_period_days: TRIAL_DAYS,
+        cancel_at_period_end: true, // clean "stop at end of trial" behavior (no surprise billing)
         metadata: {
-          ...sub.metadata,
-          cancel_reason: "trial_ended_no_card_model",
+          product: "explain_my_numbers",
+          phase: "trial_no_card",
         },
-      });
-    }
+      },
+      { idempotencyKey }
+    );
 
-    // 3) Create a signed magic link token (short-lived)
+    // --- 3) Create a signed magic link token (short-lived) ---
     const nonce = base64url(randomBytes(16));
     const nowSec = Math.floor(Date.now() / 1000);
     const expSec = nowSec + MAGIC_LINK_TTL_SECONDS;
@@ -135,16 +147,17 @@ export async function POST(req: Request) {
       email: rawEmail,
       stripeCustomerId: customer.id,
       trialSubscriptionId: sub.id,
-      // Source of truth for trial end is Stripe’s trial_end
-      trialEndsAt: sub.trial_end ?? null,
+      trialEndsAt: sub.trial_end ?? null, // Stripe is source of truth
       iat: nowSec,
       exp: expSec,
       nonce,
     });
 
-    // 4) Email the link
+    // Your verify route is here (as you confirmed):
+    // app/api/auth/verify-magic-link/route.ts
     const verifyUrl = `${APP_ORIGIN}/api/auth/verify-magic-link?token=${encodeURIComponent(token)}`;
 
+    // --- 4) Email the link ---
     await sendMagicLinkEmail({
       to: rawEmail,
       verifyUrl,
@@ -156,7 +169,7 @@ export async function POST(req: Request) {
       message: "Magic link sent.",
       email: maskEmail(rawEmail),
     });
-  } catch (err: any) {
+  } catch {
     // Don’t leak internals
     return NextResponse.json(
       { ok: false, error: "Could not start trial. Please try again.", error_code: "START_TRIAL_FAILED" },

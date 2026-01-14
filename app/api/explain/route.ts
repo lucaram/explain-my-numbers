@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
 import { timingSafeEqual, createHmac, createHash } from "crypto";
+import { getEntitlementFromRequest } from "@/lib/entitlements";
+
 /**
  * MODE A (schema-free, comprehensive):
  * - Accept any CSV/TSV/TXT/XLS/XLSX
@@ -34,7 +36,8 @@ type ApiErrorCode =
   | "SERVER_ERROR"
   | "CONFIG_ERROR"
   | "GATE_REQUIRED"
-  | "FORBIDDEN";
+  | "FORBIDDEN"
+  | "NO_ENTITLEMENT";
 
 
 function jsonError(
@@ -1914,6 +1917,22 @@ export async function POST(req: Request) {
       500
     );
   }
+
+// Subscription / trial entitlement gate (single source of truth)
+  const ent = await getEntitlementFromRequest(req);
+if (!ent.canExplain) {
+  return NextResponse.json(
+    {
+      ok: false,
+      error: "Your free trial has ended. Subscribe to continue.",
+      error_code: "NO_ENTITLEMENT",
+      reason: ent.reason,
+    },
+    { status: 402, headers: corsHeadersFor(req) }
+  );
+}
+
+
 
   // ✅ Require short-lived server gate token (prevents quota burning)
   try {
