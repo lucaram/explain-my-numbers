@@ -20,6 +20,7 @@ import {
   CreditCard,
   Mail,
   ArrowRight,
+  Send,
 } from "lucide-react";
 
 /** TYPES & UTILS */
@@ -1593,211 +1594,181 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* ✅ Paywall UI block (minimal + premium) */}
-          {paywall && (
-            <div className="px-6 md:px-10 pt-5 pb-2">
-              <div
-                className={cn(
-                  "rounded-[2rem] border p-5 md:p-6 overflow-hidden relative",
-                  "shadow-[0_18px_60px_rgba(0,0,0,0.08)] dark:shadow-[0_28px_90px_rgba(0,0,0,0.45)]",
-                  theme === "dark" ? "bg-white/[0.02] border-amber-500/20" : "bg-amber-50/60 border-amber-200"
-                )}
-              >
-                <div
+         {/* 💎 2026 Ultra-Premium Paywall UI */}
+{paywall && (
+  <div className="px-6 md:px-10 pt-10 pb-6 animate-in fade-in zoom-in-95 duration-1000 ease-out-expo">
+    <div
+      className={cn(
+        "rounded-[3rem] border overflow-hidden relative group isolate",
+        "transition-all duration-1000 cubic-bezier(0.16, 1, 0.3, 1)",
+        theme === "dark" 
+          ? "bg-zinc-950 border-white/[0.08] shadow-[0_0_0_1px_rgba(255,255,255,0.05),0_32px_64px_-16px_rgba(0,0,0,0.6)]" 
+          : "bg-white border-zinc-200 shadow-[0_0_0_1px_rgba(0,0,0,0.03),0_32px_64px_-16px_rgba(0,0,0,0.12)]"
+      )}
+    >
+      {/* 2026 "Border Beam" Effect: A subtle moving light around the edge */}
+      <div className="absolute inset-[-2px] bg-[conic-gradient(from_0deg,transparent_0deg,transparent_150deg,rgba(99,102,241,0.4)_180deg,transparent_210deg)] opacity-0 group-hover:opacity-100 animate-[spin_4s_linear_infinite] transition-opacity duration-700 pointer-events-none" />
+
+      {/* Dynamic Mesh Background */}
+      <div className="absolute inset-0 -z-10 overflow-hidden">
+        <div className={cn(
+          "absolute -top-[40%] -left-[10%] w-[70%] h-[80%] rounded-full blur-[120px] transition-transform duration-1000 group-hover:-translate-y-4",
+          theme === "dark" ? "bg-indigo-500/10" : "bg-indigo-500/5"
+        )} />
+        <div className={cn(
+          "absolute -bottom-[20%] -right-[10%] w-[50%] h-[60%] rounded-full blur-[100px] opacity-50",
+          theme === "dark" ? "bg-purple-500/10" : "bg-purple-500/5"
+        )} />
+      </div>
+
+      <div className="relative p-1 md:p-[2px]"> {/* Inner ring for the border beam */}
+        <div className={cn(
+          "rounded-[2.9rem] p-8 md:p-14 relative overflow-hidden",
+          theme === "dark" ? "bg-zinc-950/90" : "bg-white/90",
+          "backdrop-blur-3xl"
+        )}>
+          
+          <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center md:items-start gap-10 md:gap-16">
+            
+            {/* Visual Anchor: Floating Abstract Icon */}
+            <div className="relative group/icon scale-110 md:scale-125">
+              <div className={cn(
+                "w-20 h-20 rounded-[2rem] flex items-center justify-center relative z-10",
+                "transition-all duration-700 group-hover/icon:rotate-[10deg] group-hover/icon:scale-110",
+                theme === "dark" 
+                  ? "bg-gradient-to-b from-zinc-800 to-zinc-900 border border-white/10" 
+                  : "bg-white border border-zinc-200 shadow-xl"
+              )}>
+                <CreditCard size={32} strokeWidth={1.2} className={theme === "dark" ? "text-indigo-400" : "text-indigo-600"} />
+              </div>
+              {/* Icon Reflection/Shadow */}
+              <div className="absolute inset-0 bg-indigo-500 blur-2xl opacity-20 scale-75 group-hover/icon:opacity-40 transition-opacity" />
+            </div>
+
+            <div className="flex-1 text-center md:text-left space-y-6">
+              <div className="space-y-3">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-indigo-500/20 bg-indigo-500/5">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                  </span>
+                  <span className={cn(
+                    "text-[10px] font-bold uppercase tracking-[0.3em]",
+                    theme === "dark" ? "text-indigo-300" : "text-indigo-700"
+                  )}>
+                    Access Restricted
+                  </span>
+                </div>
+
+                <h2 className={cn(
+                  "text-3xl md:text-4xl font-semibold tracking-tight leading-[1.1]",
+                  theme === "dark" ? "text-white" : "text-zinc-900"
+                )}>
+                  Experience without limits.
+                </h2>
+                
+                <p className={cn(
+                  "text-[16px] md:text-[18px] leading-relaxed max-w-lg mx-auto md:mx-0 font-medium opacity-60",
+                  theme === "dark" ? "text-zinc-400" : "text-zinc-600"
+                )}>
+                  {paywall.reason || "Unlock exclusive features and high-performance tools designed for your workflow."}
+                </p>
+              </div>
+
+              {/* Action Container */}
+              <div className="pt-4 flex flex-col sm:flex-row items-center gap-5">
+                <button
+                  onClick={handleSubscribe}
+                  disabled={isSubscribing}
                   className={cn(
-                    "pointer-events-none absolute inset-0 opacity-60",
-                    theme === "dark"
-                      ? "bg-[radial-gradient(800px_circle_at_10%_0%,rgba(245,158,11,0.12),transparent_60%)]"
-                      : "bg-[radial-gradient(800px_circle_at_10%_0%,rgba(245,158,11,0.18),transparent_60%)]"
+                    "relative w-full sm:w-auto px-10 py-5 rounded-full overflow-hidden transition-all duration-500",
+                    "text-base font-bold tracking-tight active:scale-95 shadow-2xl",
+                    theme === "dark" 
+                      ? "bg-white text-black hover:shadow-white/10" 
+                      : "bg-zinc-900 text-white hover:shadow-zinc-900/40"
                   )}
-                />
+                >
+                  <span className="relative z-10 flex items-center justify-center gap-3">
+                    {isSubscribing ? (
+                      <Loader2 size={20} className="animate-spin" />
+                    ) : (
+                      <>
+                        Unlock Pro — £4.99/mo
+                        <ArrowRight size={20} />
+                      </>
+                    )}
+                  </span>
+                  {/* High-end Shimmer Overlay */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-indigo-500/20 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite] transition-transform" />
+                </button>
 
-                <div className="relative">
-                  <div className="flex items-start gap-4">
-                    <div
+                <button
+                  onClick={() => setMagicOpen((v) => !v)}
+                  className={cn(
+                    "text-sm font-semibold underline-offset-8 hover:underline decoration-indigo-500/50 transition-all",
+                    theme === "dark" ? "text-zinc-400 hover:text-white" : "text-zinc-500 hover:text-zinc-900"
+                  )}
+                >
+                  Restore Access
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Collapsible Magic Panel with 2026 Micro-layout */}
+          {magicOpen && (
+            <div className="mt-12 animate-in fade-in slide-in-from-top-4 duration-700 cubic-bezier(0.16, 1, 0.3, 1)">
+              <div className={cn(
+                "p-px rounded-[2.5rem] bg-gradient-to-b",
+                theme === "dark" ? "from-white/10 to-transparent" : "from-zinc-200 to-transparent"
+              )}>
+                <div className={cn(
+                  "rounded-[2.4rem] p-8 md:p-10 flex flex-col md:flex-row gap-6 items-end justify-between",
+                  theme === "dark" ? "bg-zinc-900/50" : "bg-zinc-50/50"
+                )}>
+                  <div className="w-full space-y-4">
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-bold uppercase tracking-widest opacity-50">Security Check</h4>
+                      <p className="text-xs opacity-40 italic">We'll send a one-time secure entry link.</p>
+                    </div>
+                    <input
+                      value={magicEmail}
+                      onChange={(e) => setMagicEmail(e.target.value)}
+                      placeholder="Enter your authorized email"
                       className={cn(
-                        "w-10 h-10 rounded-2xl flex items-center justify-center ring-1 ring-inset",
-                        theme === "dark"
-                          ? "bg-amber-500/10 text-amber-200 ring-amber-500/20"
-                          : "bg-amber-500/10 text-amber-900 ring-amber-500/20"
+                        "w-full bg-transparent text-xl font-light py-2 outline-none border-b-2 transition-all",
+                        theme === "dark" 
+                          ? "border-white/10 focus:border-indigo-500 placeholder:text-zinc-700" 
+                          : "border-zinc-200 focus:border-indigo-600 placeholder:text-zinc-300"
                       )}
-                      aria-hidden="true"
-                    >
-                      <CreditCard size={18} />
-                    </div>
-
-                    <div className="min-w-0">
-                      <p
-                        className={cn(
-                          "text-[11px] font-black uppercase tracking-[0.28em]",
-                          theme === "dark" ? "text-amber-200/80" : "text-amber-900/70"
-                        )}
-                      >
-                        Subscription required
-                      </p>
-                      <p className={cn("mt-2 text-[13px] md:text-[14px] font-semibold tracking-[-0.01em]", theme === "dark" ? "text-white/90" : "text-zinc-900")}>
-                        {paywall.message}
-                      </p>
-
-                      {paywall.reason && (
-                        <p className={cn("mt-2 text-[12px] leading-relaxed font-medium", theme === "dark" ? "text-white/65" : "text-zinc-700")}>
-                          {paywall.reason}
-                        </p>
-                      )}
-
-                      <div className="mt-4 flex flex-col sm:flex-row gap-2.5">
-                        <button
-                          type="button"
-                          onClick={handleSubscribe}
-                          disabled={isSubscribing}
-                          className={cn(
-                            "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl",
-                            "text-[13px] font-semibold tracking-[-0.01em]",
-                            "transition-all duration-200 active:scale-[0.99]",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                            "shadow-[0_18px_60px_rgba(0,0,0,0.12)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)]",
-                            theme === "dark" ? "bg-white text-black hover:opacity-90" : "bg-black text-white hover:opacity-90",
-                            isSubscribing && "opacity-85"
-                          )}
-                        >
-                          {isSubscribing ? (
-                            <>
-                              <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />
-                              <span>Opening checkout…</span>
-                            </>
-                          ) : (
-                            <>
-                              <span>Subscribe £4.99/mo</span>
-                              <ArrowRight size={16} className="opacity-80" />
-                            </>
-                          )}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setMagicOpen((v) => !v)}
-                          className={cn(
-                            "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl border",
-                            "text-[13px] font-semibold tracking-[-0.01em]",
-                            "transition-all duration-200 active:scale-[0.99]",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                            theme === "dark"
-                              ? "border-white/10 bg-white/[0.02] hover:bg-white/6 text-white/85"
-                              : "border-zinc-200 bg-white/70 hover:bg-white text-zinc-900"
-                          )}
-                          title="If you lost your session, request a new link"
-                        >
-                          <Mail size={16} className="opacity-80" />
-                          <span>Email me a magic link</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPaywall(null);
-                            setMagicOpen(false);
-                            setMagicNote("");
-                          }}
-                          className={cn(
-                            "inline-flex items-center justify-center px-5 py-3 rounded-2xl",
-                            "text-[13px] font-semibold tracking-[-0.01em]",
-                            "transition-all duration-200 active:scale-[0.99]",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                            theme === "dark" ? "text-white/70 hover:bg-white/5" : "text-zinc-700 hover:bg-zinc-100"
-                          )}
-                        >
-                          Not now
-                        </button>
-                      </div>
-
-                      {/* Expandable magic link mini-form */}
-                      {magicOpen && (
-                        <div
-                          className={cn(
-                            "mt-4 rounded-2xl border p-4 md:p-5 emn-fade",
-                            theme === "dark" ? "border-white/10 bg-white/[0.02]" : "border-zinc-200 bg-white/70"
-                          )}
-                        >
-                          <div className="flex flex-col md:flex-row md:items-center gap-2.5">
-                            <div className="flex-1">
-                              <label className={cn("text-[10px] font-black uppercase tracking-[0.24em]", theme === "dark" ? "text-white/60" : "text-zinc-600")}>
-                                Email
-                              </label>
-                              <input
-                                value={magicEmail}
-                                onChange={(e) => setMagicEmail(e.target.value)}
-                                placeholder="you@company.com"
-                                className={cn(
-                                  "mt-2 w-full rounded-2xl border bg-transparent px-4 py-3 outline-none",
-                                  "text-[13px] font-semibold tracking-[-0.01em]",
-                                  "focus-visible:ring-2 focus-visible:ring-blue-500/35 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                                  theme === "dark"
-                                    ? "border-white/10 text-white/90 placeholder:text-white/25"
-                                    : "border-zinc-200 text-zinc-900 placeholder:text-zinc-400"
-                                )}
-                                inputMode="email"
-                                autoComplete="email"
-                              />
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={handleSendMagicLink}
-                              disabled={magicBusy}
-                              className={cn(
-                                "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl",
-                                "text-[13px] font-semibold tracking-[-0.01em]",
-                                "transition-all duration-200 active:scale-[0.99]",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                                "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.20)]",
-                                theme === "dark"
-                                  ? "bg-white text-black hover:opacity-90"
-                                  : "bg-zinc-900 text-white hover:opacity-90",
-                                "md:mt-7"
-                              )}
-                            >
-                              {magicBusy ? (
-                                <>
-                                  <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />
-                                  <span>Sending…</span>
-                                </>
-                              ) : (
-                                <>
-                                  <span>Send link</span>
-                                  <ArrowRight size={16} className="opacity-80" />
-                                </>
-                              )}
-                            </button>
-                          </div>
-
-                          {!!magicNote && (
-                            <div className="mt-3">
-                              <div
-                                className={cn(
-                                  "inline-flex items-center gap-2 rounded-2xl border px-3.5 py-2",
-                                  "text-[12px] font-semibold tracking-[-0.01em]",
-                                  theme === "dark"
-                                    ? "bg-white/[0.02] border-white/10 text-white/70"
-                                    : "bg-white border-zinc-200 text-zinc-700"
-                                )}
-                              >
-                                <span className={cn("h-1.5 w-1.5 rounded-full", theme === "dark" ? "bg-white/35" : "bg-zinc-400")} />
-                                <span>{magicNote}</span>
-                              </div>
-                            </div>
-                          )}
-
-                          <p className={cn("mt-3 text-[11px] leading-relaxed", theme === "dark" ? "text-white/45" : "text-zinc-500")}>
-                            Use this if your session expired or you opened the app on a new device.
-                          </p>
-                        </div>
-                      )}
-                    </div>
+                    />
                   </div>
+                  <button
+                    onClick={handleSendMagicLink}
+                    disabled={magicBusy}
+                    className="shrink-0 w-full md:w-16 h-16 rounded-full bg-indigo-600 flex items-center justify-center text-white hover:bg-indigo-500 transition-all hover:scale-110 active:scale-90"
+                  >
+                    {magicBusy ? <Loader2 className="animate-spin" /> : <Send size={24} />}
+                  </button>
                 </div>
               </div>
             </div>
           )}
+
+          <div className="mt-12 flex justify-center border-t border-white/5 pt-8">
+             <button
+              onClick={() => setPaywall(null)}
+              className="text-[11px] font-black uppercase tracking-[0.4em] opacity-30 hover:opacity-100 transition-all duration-500"
+            >
+              Dismiss Overlay
+            </button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
           {/* ✅ Inline “why it didn’t run” line — fades/animates elegantly */}
           {!!explainBlockReason && (
