@@ -5,9 +5,16 @@ import { Redis } from "@upstash/redis";
 
 export const runtime = "nodejs";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+function getStripe() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) throw new Error("Missing STRIPE_SECRET_KEY.");
+  return new Stripe(key);
+}
 
-const redis = Redis.fromEnv();
+function getRedis() {
+  return Redis.fromEnv();
+}
+
 
 // Stored snapshot (optional cache / audit)
 type EntitlementSnapshot = {
@@ -28,10 +35,12 @@ function keyForCustomer(customerId: string) {
 }
 
 async function writeSnapshot(customerId: string, snap: EntitlementSnapshot) {
+  const redis = getRedis();
   // keep for a while (you can increase later)
   // This is only a cache/snapshot; Stripe remains the source of truth.
   await redis.set(keyForCustomer(customerId), snap, { ex: 60 * 60 * 24 * 14 }); // 14 days
 }
+
 
 function jsonOk() {
   return NextResponse.json({ ok: true });
@@ -122,9 +131,12 @@ export async function POST(req: Request) {
   const rawBody = await req.text();
 
   let event: Stripe.Event;
-  try {
-    event = stripe.webhooks.constructEvent(rawBody, sig, secret);
-  } catch (err: unknown) {
+  const stripe = getStripe();
+
+try {
+  event = stripe.webhooks.constructEvent(rawBody, sig, secret);
+}
+ catch (err: unknown) {
     const msg =
       err instanceof Error ? err.message : "Unknown signature verification error";
     return jsonErr(`Webhook signature verification failed. ${msg}`.trim(), 400);
@@ -143,16 +155,15 @@ export async function POST(req: Request) {
 
         // Fetch subscription for authoritative fields (status, trial_end, etc.)
         let sub: Stripe.Subscription | null = null;
-        if (subscriptionId) {
-          try {
-            sub = await stripe.subscriptions.retrieve(subscriptionId, {
-              // items is included by default, but this makes it explicit
-              expand: ["items.data.price"],
-            });
-          } catch {
-            sub = null;
-          }
-        }
+if (subscriptionId) {
+  try {
+    sub = await stripe.subscriptions.retrieve(subscriptionId, {
+      expand: ["items.data.price"],
+    });
+  } catch {
+    sub = null;
+  }
+}
 
         const now = Math.floor(Date.now() / 1000);
 
