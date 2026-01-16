@@ -84,9 +84,13 @@ function parseCookies(header: string | null) {
 
 /**
  * Reads emn_session from Cookie header (server-side), verifies signature,
- * then checks Stripe for an active trial or active subscription.
+ * then checks:
+ * 1) Session-based trial window (for "no card" trials)
+ * 2) Stripe subscriptions (trialing/active)
  */
-export async function getEntitlementFromRequest(req: Request): Promise<EntitlementResult> {
+export async function getEntitlementFromRequest(
+  req: Request
+): Promise<EntitlementResult> {
   try {
     if (!process.env.STRIPE_SECRET_KEY || !MAGIC_LINK_SECRET) {
       return { canExplain: false, reason: "stripe_error" };
@@ -102,7 +106,21 @@ export async function getEntitlementFromRequest(req: Request): Promise<Entitleme
     const stripeCustomerId = session.stripeCustomerId;
     if (!stripeCustomerId) return { canExplain: false, reason: "no_customer" };
 
-    // Primary truth: check subscriptions for this customer.
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    // ✅ Session-based trial (no-card trial) — source of truth if present & in the future
+    if (typeof session.trialEndsAt === "number" && session.trialEndsAt > nowSec) {
+      return {
+        canExplain: true,
+        reason: "trial_active",
+        stripeCustomerId,
+        email: session.email,
+        trialEndsAt: session.trialEndsAt,
+        activeSubscriptionId: session.trialSubscriptionId ?? null,
+      };
+    }
+
+    // Primary truth for paid/trialing subs: check subscriptions for this customer.
     // We only care whether there exists any subscription that is:
     // - trialing (trial active)
     // - active (paid active)
@@ -113,11 +131,12 @@ export async function getEntitlementFromRequest(req: Request): Promise<Entitleme
       expand: ["data.default_payment_method"],
     });
 
-    const nowSec = Math.floor(Date.now() / 1000);
-
     // trialing: must have trial_end in the future
     const trialing = subs.data.find(
-      (s) => s.status === "trialing" && typeof s.trial_end === "number" && s.trial_end > nowSec
+      (s) =>
+        s.status === "trialing" &&
+        typeof s.trial_end === "number" &&
+        s.trial_end > nowSec
     );
     if (trialing) {
       return {

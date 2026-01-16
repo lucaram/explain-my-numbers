@@ -1,4 +1,4 @@
-// src/app/api/auth/start-trial/route.ts
+// src/app/api/auth/start-subscribe/route.ts
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createHmac, randomBytes } from "crypto";
@@ -7,7 +7,6 @@ import { sendMagicLinkEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
-const TRIAL_DAYS = 3;
 const MAGIC_LINK_TTL_SECONDS = 15 * 60; // 15 minutes
 
 function isValidEmail(email: string) {
@@ -93,14 +92,14 @@ export async function POST(req: Request) {
         email: rawEmail,
         metadata: {
           product: "explain_my_numbers",
-          created_by: "start_trial",
+          created_by: "start_subscribe",
         },
       });
 
       await redis.set(customerKey(rawEmail), customer.id, { ex: 60 * 60 * 24 * 365 });
     }
 
-    // 2) Create a signed magic link token (trial starts ONLY on click)
+    // 2) Create magic link token (subscribe redirects to Stripe Checkout on click)
     const nonce = base64url(randomBytes(16));
     const nowSec = Math.floor(Date.now() / 1000);
     const expSec = nowSec + MAGIC_LINK_TTL_SECONDS;
@@ -109,7 +108,7 @@ export async function POST(req: Request) {
       {
         v: 1,
         typ: "magic_link",
-        intent: "trial",
+        intent: "subscribe",
         email: rawEmail,
         stripeCustomerId: customer.id,
         iat: nowSec,
@@ -121,12 +120,10 @@ export async function POST(req: Request) {
 
     const verifyUrl = `${APP_ORIGINS.split(",")[0].trim()}/api/auth/verify-magic-link?token=${encodeURIComponent(token)}`;
 
-    // 3) Email the link
     await sendMagicLinkEmail({
       to: rawEmail,
       verifyUrl,
-      mode: "trial",
-      trialDays: TRIAL_DAYS,
+      mode: "subscribe",
     });
 
     return NextResponse.json({
@@ -135,9 +132,9 @@ export async function POST(req: Request) {
       email: maskEmail(rawEmail),
     });
   } catch (e) {
-    console.error("start-trial failed:", e);
+    console.error("start-subscribe failed:", e);
     return NextResponse.json(
-      { ok: false, error: "Could not start trial. Please try again.", error_code: "START_TRIAL_FAILED" },
+      { ok: false, error: "Could not start subscription. Please try again.", error_code: "START_SUBSCRIBE_FAILED" },
       { status: 500 }
     );
   }

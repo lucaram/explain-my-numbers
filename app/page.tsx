@@ -1,7 +1,8 @@
 // src/app/page.tsx
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+
 import {
   Copy,
   RotateCcw,
@@ -46,15 +47,33 @@ type ExplainMeta = {
   };
 };
 
+type BillingStatus = {
+  canExplain: boolean;
+  reason:
+    | "missing_session"
+    | "invalid_session"
+    | "no_customer"
+    | "trial_active"
+    | "subscription_active"
+    | "no_entitlement"
+    | "stripe_error";
+  trialEndsAt: number | null;
+};
+
+
+
+
 type ExplainOk = {
   ok: true;
   explanation: string;
+  lang: string; // ✅ authoritative language from backend
   warnings?: {
     total: number;
     categories: WarningCategory[];
   };
   meta?: ExplainMeta;
 };
+
 
 type ExplainErr = {
   ok: false;
@@ -83,6 +102,37 @@ type GateResponse = GateResponseOk | GateResponseErr;
 const GATE_HEADER = "X-EMN-Gate";
 const GATE_CACHE_KEY = "emn_gate_cache_v1";
 const DEFAULT_GATE_TTL_MS = 5 * 60 * 1000;
+
+function daysLeftFromTrialEnd(trialEndsAtSec: number) {
+  // Use end-of-day style rounding so “1 day left” doesn’t flicker during the day.
+  const msLeft = trialEndsAtSec * 1000 - Date.now();
+  const days = Math.ceil(msLeft / (1000 * 60 * 60 * 24));
+  return Math.max(0, days);
+}
+
+function buildTrialChip(b: BillingStatus | null) {
+  if (!b) return null;
+
+  if (b.reason === "subscription_active") {
+    return { tone: "good" as const, title: "Subscribed", sub: "£4.99/mo active" };
+  }
+
+  if (b.reason === "trial_active" && typeof b.trialEndsAt === "number") {
+    const d = daysLeftFromTrialEnd(b.trialEndsAt);
+    const dayWord = d === 1 ? "day" : "days";
+    return { tone: "trial" as const, title: "Free trial", sub: `${d} ${dayWord} left` };
+  }
+
+  // Only show “Trial ended” when we *know* they had a trial/sub and now don’t.
+  if (b.reason === "no_entitlement") {
+    return { tone: "ended" as const, title: "Trial ended", sub: "Subscribe £4.99/mo", cta: "subscribe" as const };
+
+  }
+
+  // No session / unknown → don’t show a chip (keeps UI clean)
+  return null;
+}
+
 
 function nowMs() {
   return Date.now();
@@ -166,9 +216,572 @@ function formatScoreToPercent(note: string) {
 }
 
 /**
+ * ✅ Lightweight i18n for section headers (no library)
+ * - Backend is authoritative: we use result.lang (NOT navigator.language)
+ * - Fallback to English if language not supported
+ */
+
+type SectionKey = "summary" | "changed" | "observations" | "why" | "meaning" | "not" | "evidence";
+
+const HEADER_TO_KEY: Record<string, SectionKey> = {
+  "Summary:": "summary",
+  "What changed:": "changed",
+  "Underlying observations:": "observations",
+  "Why it likely changed:": "why",
+  "What it means:": "meaning",
+  "What NOT to conclude:": "not",
+  "Evidence strength:": "evidence",
+};
+
+function normalizeLang(lang?: string): string {
+  const raw = String(lang || "en").trim().toLowerCase();
+  if (!raw) return "en";
+  const base = raw.split(/[-_]/)[0]; // "pt-BR" -> "pt", "zh_CN" -> "zh"
+  // optional aliases (if your backend ever returns these)
+  if (base === "cn") return "zh";
+  if (base === "jp") return "ja";
+  if (base === "kr") return "ko";
+  return base;
+}
+
+/**
+ * Add more languages here if your backend supports them.
+ * If a lang is missing, it falls back to English automatically.
+ */
+const SECTION_TITLES: Record<string, Record<SectionKey, string>> = {
+  en: {
+    summary: "Summary",
+    changed: "What changed",
+    observations: "Underlying observations",
+    why: "Why it likely changed",
+    meaning: "What it means",
+    not: "What NOT to conclude",
+    evidence: "Confidence",
+  },
+
+  it: {
+    summary: "Riepilogo",
+    changed: "Cosa è cambiato",
+    observations: "Osservazioni principali",
+    why: "Perché probabilmente è cambiato",
+    meaning: "Cosa significa",
+    not: "Cosa NON concludere",
+    evidence: "Affidabilità",
+  },
+
+  fr: {
+    summary: "Résumé",
+    changed: "Ce qui a changé",
+    observations: "Observations principales",
+    why: "Pourquoi cela a probablement changé",
+    meaning: "Ce que cela signifie",
+    not: "Ce qu’il ne faut PAS conclure",
+    evidence: "Confiance",
+  },
+
+  es: {
+    summary: "Resumen",
+    changed: "Qué cambió",
+    observations: "Observaciones principales",
+    why: "Por qué probablemente cambió",
+    meaning: "Qué significa",
+    not: "Qué NO concluir",
+    evidence: "Confianza",
+  },
+
+  de: {
+    summary: "Zusammenfassung",
+    changed: "Was sich geändert hat",
+    observations: "Wesentliche Beobachtungen",
+    why: "Warum es sich vermutlich geändert hat",
+    meaning: "Was es bedeutet",
+    not: "Was NICHT geschlossen werden sollte",
+    evidence: "Zuverlässigkeit",
+  },
+
+  pt: {
+    summary: "Resumo",
+    changed: "O que mudou",
+    observations: "Observações principais",
+    why: "Por que provavelmente mudou",
+    meaning: "O que isso significa",
+    not: "O que NÃO concluir",
+    evidence: "Confiabilidade",
+  },
+
+  nl: {
+    summary: "Samenvatting",
+    changed: "Wat is er veranderd",
+    observations: "Belangrijkste observaties",
+    why: "Waarom het waarschijnlijk veranderde",
+    meaning: "Wat het betekent",
+    not: "Wat je NIET moet concluderen",
+    evidence: "Betrouwbaarheid",
+  },
+
+  sv: {
+    summary: "Sammanfattning",
+    changed: "Vad som ändrades",
+    observations: "Viktiga observationer",
+    why: "Varför det troligen ändrades",
+    meaning: "Vad det betyder",
+    not: "Vad du INTE ska dra för slutsats",
+    evidence: "Tillförlitlighet",
+  },
+
+  no: {
+    summary: "Sammendrag",
+    changed: "Hva som endret seg",
+    observations: "Viktige observasjoner",
+    why: "Hvorfor det sannsynligvis endret seg",
+    meaning: "Hva det betyr",
+    not: "Hva du IKKE bør konkludere",
+    evidence: "Pålitelighet",
+  },
+
+  da: {
+    summary: "Resumé",
+    changed: "Hvad der ændrede sig",
+    observations: "Vigtige observationer",
+    why: "Hvorfor det sandsynligvis ændrede sig",
+    meaning: "Hvad det betyder",
+    not: "Hvad du IKKE bør konkludere",
+    evidence: "Pålidelighed",
+  },
+
+  fi: {
+    summary: "Yhteenveto",
+    changed: "Mikä muuttui",
+    observations: "Keskeiset havainnot",
+    why: "Miksi se todennäköisesti muuttui",
+    meaning: "Mitä se tarkoittaa",
+    not: "Mitä EI pidä päätellä",
+    evidence: "Luotettavuus",
+  },
+
+  pl: {
+    summary: "Podsumowanie",
+    changed: "Co się zmieniło",
+    observations: "Kluczowe obserwacje",
+    why: "Dlaczego to prawdopodobnie się zmieniło",
+    meaning: "Co to oznacza",
+    not: "Czego NIE należy wnioskować",
+    evidence: "Wiarygodność",
+  },
+
+  tr: {
+    summary: "Özet",
+    changed: "Ne değişti",
+    observations: "Temel gözlemler",
+    why: "Neden muhtemelen değişti",
+    meaning: "Bu ne anlama geliyor",
+    not: "NE sonuç çıkarılmamalı",
+    evidence: "Güvenilirlik",
+  },
+
+  el: {
+    summary: "Σύνοψη",
+    changed: "Τι άλλαξε",
+    observations: "Κύριες παρατηρήσεις",
+    why: "Γιατί πιθανόν άλλαξε",
+    meaning: "Τι σημαίνει",
+    not: "Τι ΔΕΝ πρέπει να συμπεράνετε",
+    evidence: "Αξιοπιστία",
+  },
+
+  cs: {
+    summary: "Shrnutí",
+    changed: "Co se změnilo",
+    observations: "Klíčová pozorování",
+    why: "Proč se to pravděpodobně změnilo",
+    meaning: "Co to znamená",
+    not: "Co NENÍ vhodné vyvozovat",
+    evidence: "Spolehlivost",
+  },
+
+  hu: {
+    summary: "Összegzés",
+    changed: "Mi változott",
+    observations: "Fő megfigyelések",
+    why: "Miért valószínű, hogy változott",
+    meaning: "Mit jelent",
+    not: "Mit NEM szabad levonni",
+    evidence: "Megbízhatóság",
+  },
+
+  ro: {
+    summary: "Rezumat",
+    changed: "Ce s-a schimbat",
+    observations: "Observații principale",
+    why: "De ce probabil s-a schimbat",
+    meaning: "Ce înseamnă",
+    not: "Ce NU trebuie concluzionat",
+    evidence: "Fiabilitate",
+  },
+
+  uk: {
+    summary: "Підсумок",
+    changed: "Що змінилося",
+    observations: "Ключові спостереження",
+    why: "Чому це, ймовірно, змінилося",
+    meaning: "Що це означає",
+    not: "Чого НЕ слід висновувати",
+    evidence: "Надійність",
+  },
+
+  ru: {
+    summary: "Сводка",
+    changed: "Что изменилось",
+    observations: "Основные наблюдения",
+    why: "Почему это, вероятно, изменилось",
+    meaning: "Что это означает",
+    not: "Чего НЕ следует заключать",
+    evidence: "Надежность",
+  },
+
+  ar: {
+    summary: "الملخص",
+    changed: "ما الذي تغير",
+    observations: "الملاحظات الرئيسية",
+    why: "لماذا يُحتمل أنه تغير",
+    meaning: "ماذا يعني ذلك",
+    not: "ما الذي لا يجب استنتاجه",
+    evidence: "الموثوقية",
+  },
+
+  he: {
+    summary: "סיכום",
+    changed: "מה השתנה",
+    observations: "תצפיות מרכזיות",
+    why: "למה זה כנראה השתנה",
+    meaning: "מה זה אומר",
+    not: "מה לא להסיק",
+    evidence: "מהימנות",
+  },
+
+  hi: {
+    summary: "सारांश",
+    changed: "क्या बदला",
+    observations: "मुख्य अवलोकन",
+    why: "संभावित रूप से क्यों बदला",
+    meaning: "इसका क्या अर्थ है",
+    not: "क्या निष्कर्ष नहीं निकालना चाहिए",
+    evidence: "विश्वसनीयता",
+  },
+
+  bn: {
+    summary: "সারাংশ",
+    changed: "কি পরিবর্তন হয়েছে",
+    observations: "মূল পর্যবেক্ষণ",
+    why: "সম্ভবত কেন পরিবর্তন হয়েছে",
+    meaning: "এর মানে কী",
+    not: "কি সিদ্ধান্ত টানা উচিত নয়",
+    evidence: "বিশ্বস্ততা",
+  },
+
+  ur: {
+    summary: "خلاصہ",
+    changed: "کیا بدلا",
+    observations: "اہم مشاہدات",
+    why: "ممکنہ طور پر کیوں بدلا",
+    meaning: "اس کا کیا مطلب ہے",
+    not: "کیا نتیجہ نہ نکالیں",
+    evidence: "اعتبار",
+  },
+
+  id: {
+    summary: "Ringkasan",
+    changed: "Apa yang berubah",
+    observations: "Observasi utama",
+    why: "Mengapa kemungkinan berubah",
+    meaning: "Apa artinya",
+    not: "Apa yang TIDAK boleh disimpulkan",
+    evidence: "Keandalan",
+  },
+
+  ms: {
+    summary: "Ringkasan",
+    changed: "Apa yang berubah",
+    observations: "Pemerhatian utama",
+    why: "Mengapa kemungkinan berubah",
+    meaning: "Apa maksudnya",
+    not: "Apa yang TIDAK patut disimpulkan",
+    evidence: "Kebolehpercayaan",
+  },
+
+  th: {
+    summary: "สรุป",
+    changed: "อะไรเปลี่ยนไป",
+    observations: "ข้อสังเกตสำคัญ",
+    why: "ทำไมจึงน่าจะเปลี่ยน",
+    meaning: "หมายความว่าอย่างไร",
+    not: "สิ่งที่ไม่ควรสรุป",
+    evidence: "ความน่าเชื่อถือ",
+  },
+
+  vi: {
+    summary: "Tóm tắt",
+    changed: "Điều gì đã thay đổi",
+    observations: "Quan sát chính",
+    why: "Vì sao có khả năng đã thay đổi",
+    meaning: "Nó có ý nghĩa gì",
+    not: "KHÔNG nên kết luận gì",
+    evidence: "Độ tin cậy",
+  },
+
+  ja: {
+    summary: "概要",
+    changed: "何が変わったか",
+    observations: "主な観察結果",
+    why: "なぜ変化した可能性があるか",
+    meaning: "それが意味すること",
+    not: "結論すべきでないこと",
+    evidence: "信頼度",
+  },
+
+  ko: {
+    summary: "요약",
+    changed: "무엇이 바뀌었나",
+    observations: "주요 관찰 내용",
+    why: "왜 바뀌었을 가능성이 있나",
+    meaning: "무엇을 의미하나",
+    not: "결론지으면 안 되는 점",
+    evidence: "신뢰도",
+  },
+
+  zh: {
+    summary: "摘要",
+    changed: "发生了什么变化",
+    observations: "关键观察",
+    why: "可能发生变化的原因",
+    meaning: "这意味着什么",
+    not: "不应得出的结论",
+    evidence: "可信度",
+  },
+};
+
+// ✅ Small UI labels used in multiple components
+const UI_LABELS = {
+  confidence: {
+    en: "Confidence",
+    it: "Affidabilità",
+    fr: "Confiance",
+    es: "Confianza",
+    de: "Zuverlässigkeit",
+    pt: "Confiabilidade",
+    nl: "Betrouwbaarheid",
+    sv: "Tillförlitlighet",
+    no: "Pålitelighet",
+    da: "Pålidelighed",
+    fi: "Luotettavuus",
+    pl: "Wiarygodność",
+    tr: "Güvenilirlik",
+    el: "Αξιοπιστία",
+    cs: "Spolehlivost",
+    hu: "Megbízhatóság",
+    ro: "Fiabilitate",
+    uk: "Надійність",
+    ru: "Надежность",
+    ar: "الموثوقية",
+    he: "מהימנות",
+    hi: "विश्वसनीयता",
+    bn: "বিশ্বস্ততা",
+    ur: "اعتبار",
+    id: "Keandalan",
+    ms: "Kebolehpercayaan",
+    th: "ความน่าเชื่อถือ",
+    vi: "Độ tin cậy",
+    ja: "信頼度",
+    ko: "신뢰도",
+    zh: "可信度",
+  } as Record<string, string>,
+};
+
+
+function tSection(header: string, lang?: string): string {
+  const key = HEADER_TO_KEY[header];
+  if (!key) return header.replace(":", "");
+
+  const l = normalizeLang(lang);
+  const dict = SECTION_TITLES[l] ?? SECTION_TITLES.en;
+  return dict[key] ?? SECTION_TITLES.en[key];
+}
+
+
+
+
+/**
  * PREMIUM FORMATTER
  */
-function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
+function ElegantAnalysis({
+  text,
+  theme,
+  lang,
+}: {
+  text: string;
+  theme: Theme;
+  lang?: string;
+}) {
+  // ✅ Normalize backend language once per render (handles pt-BR, en-GB, zh-CN, etc.)
+  const langNorm = normalizeLang(lang);
+
+  // ✅ Define translation maps once per render (better: move to module scope if you want)
+  const REASON_LABEL: Record<string, string> = {
+    en: "Reason:",
+
+    it: "Motivo:",
+    fr: "Raison :",
+    es: "Motivo:",
+    de: "Begründung:",
+
+    pt: "Motivo:",
+    nl: "Reden:",
+    sv: "Orsak:",
+    no: "Årsak:",
+    da: "Årsag:",
+    fi: "Syy:",
+
+    pl: "Powód:",
+    tr: "Gerekçe:",
+    el: "Λόγος:",
+    cs: "Důvod:",
+    hu: "Indok:",
+    ro: "Motiv:",
+    uk: "Причина:",
+    ru: "Причина:",
+
+    ar: "السبب:",
+    he: "סיבה:",
+
+    hi: "कारण:",
+    bn: "কারণ:",
+    ur: "وجہ:",
+
+    id: "Alasan:",
+    ms: "Sebab:",
+    th: "เหตุผล:",
+    vi: "Lý do:",
+
+    ja: "理由:",
+    ko: "이유:",
+    zh: "原因：",
+  };
+
+  const LEVEL_LABELS: Record<string, Record<"High" | "Medium" | "Low" | "Unknown", string>> = {
+    en: { High: "High", Medium: "Medium", Low: "Low", Unknown: "Unknown" },
+
+    it: { High: "Alta", Medium: "Media", Low: "Bassa", Unknown: "Sconosciuta" },
+    fr: { High: "Élevée", Medium: "Moyenne", Low: "Faible", Unknown: "Inconnue" },
+    es: { High: "Alta", Medium: "Media", Low: "Baja", Unknown: "Desconocida" },
+    de: { High: "Hoch", Medium: "Mittel", Low: "Niedrig", Unknown: "Unbekannt" },
+
+    pt: { High: "Alta", Medium: "Média", Low: "Baixa", Unknown: "Desconhecida" },
+    nl: { High: "Hoog", Medium: "Gemiddeld", Low: "Laag", Unknown: "Onbekend" },
+    sv: { High: "Hög", Medium: "Medel", Low: "Låg", Unknown: "Okänd" },
+    no: { High: "Høy", Medium: "Middels", Low: "Lav", Unknown: "Ukjent" },
+    da: { High: "Høj", Medium: "Middel", Low: "Lav", Unknown: "Ukendt" },
+    fi: { High: "Korkea", Medium: "Keskitaso", Low: "Matala", Unknown: "Tuntematon" },
+
+    pl: { High: "Wysoka", Medium: "Średnia", Low: "Niska", Unknown: "Nieznana" },
+    tr: { High: "Yüksek", Medium: "Orta", Low: "Düşük", Unknown: "Bilinmeyen" },
+    el: { High: "Υψηλή", Medium: "Μέτρια", Low: "Χαμηλή", Unknown: "Άγνωστη" },
+    cs: { High: "Vysoká", Medium: "Střední", Low: "Nízká", Unknown: "Neznámá" },
+    hu: { High: "Magas", Medium: "Közepes", Low: "Alacsony", Unknown: "Ismeretlen" },
+    ro: { High: "Ridicată", Medium: "Mediu", Low: "Scăzută", Unknown: "Necunoscută" },
+    uk: { High: "Висока", Medium: "Середня", Low: "Низька", Unknown: "Невідома" },
+    ru: { High: "Высокая", Medium: "Средняя", Low: "Низкая", Unknown: "Неизвестная" },
+
+    ar: { High: "مرتفعة", Medium: "متوسطة", Low: "منخفضة", Unknown: "غير معروفة" },
+    he: { High: "גבוהה", Medium: "בינונית", Low: "נמוכה", Unknown: "לא ידועה" },
+
+    hi: { High: "उच्च", Medium: "मध्यम", Low: "निम्न", Unknown: "अज्ञात" },
+    bn: { High: "উচ্চ", Medium: "মাঝারি", Low: "নিম্ন", Unknown: "অজানা" },
+    ur: { High: "زیادہ", Medium: "درمیانی", Low: "کم", Unknown: "نامعلوم" },
+
+    id: { High: "Tinggi", Medium: "Sedang", Low: "Rendah", Unknown: "Tidak diketahui" },
+    ms: { High: "Tinggi", Medium: "Sederhana", Low: "Rendah", Unknown: "Tidak diketahui" },
+    th: { High: "สูง", Medium: "ปานกลาง", Low: "ต่ำ", Unknown: "ไม่ทราบ" },
+    vi: { High: "Cao", Medium: "Trung bình", Low: "Thấp", Unknown: "Không rõ" },
+
+    ja: { High: "高い", Medium: "中程度", Low: "低い", Unknown: "不明" },
+    ko: { High: "높음", Medium: "중간", Low: "낮음", Unknown: "알 수 없음" },
+    zh: { High: "高", Medium: "中等", Low: "低", Unknown: "未知" },
+  };
+
+  const reasonLabel = REASON_LABEL[langNorm] ?? REASON_LABEL.en;
+  const levelLabels = LEVEL_LABELS[langNorm] ?? LEVEL_LABELS.en;
+
+  const HEADER_KEYS = [
+    "Summary:",
+    "What changed:",
+    "Underlying observations:",
+    "Why it likely changed:",
+    "What it means:",
+    "What NOT to conclude:",
+    "Evidence strength:",
+  ] as const;
+
+  const AUTO_BULLET_HEADERS = new Set<string>([
+    "What changed:",
+    "Underlying observations:",
+    "Why it likely changed:",
+    "What it means:",
+    "What NOT to conclude:",
+    "Evidence strength:",
+  ]);
+
+  // ✅ Pure render helper (no parsing inside)
+  const pill = (lvl: "Low" | "Medium" | "High" | null, pct?: number) => {
+    const map: Record<string, string> = {
+      High: "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-emerald-500/25",
+      Medium: "bg-amber-500/10 text-amber-900 dark:text-amber-200 border-amber-500/25",
+      Low: "bg-rose-500/10 text-rose-800 dark:text-rose-200 border-rose-500/25",
+      null: "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200 border-zinc-500/25",
+    };
+
+    const lvlKey = (lvl ?? "Unknown") as "High" | "Medium" | "Low" | "Unknown";
+    const pillText = levelLabels[lvlKey] ?? levelLabels.Unknown;
+
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border",
+          "text-[11px] font-black uppercase tracking-[0.18em]",
+          "shadow-[0_1px_0_rgba(255,255,255,0.32)] dark:shadow-[0_1px_0_rgba(255,255,255,0.08)]",
+          "transition-transform duration-200 will-change-transform",
+          "hover:translate-y-[-1px]",
+          map[lvl ?? "null"]
+        )}
+      >
+        <span
+          className={cn(
+            "h-1.5 w-1.5 rounded-full",
+            lvl === "High"
+              ? "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.40)]"
+              : lvl === "Medium"
+              ? "bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.30)]"
+              : lvl === "Low"
+              ? "bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.30)]"
+              : "bg-zinc-400"
+          )}
+        />
+<span>{UI_LABELS.confidence[langNorm] ?? UI_LABELS.confidence.en} · {pillText}</span>
+
+
+        {typeof pct === "number" && (
+          <span
+            className={cn(
+              "ml-1 px-2 py-0.5 rounded-full border text-[10px] font-black tracking-[0.14em]",
+              theme === "dark" ? "border-white/10 bg-white/[0.03]" : "border-black/10 bg-black/[0.03]"
+            )}
+          >
+            {pct}%
+          </span>
+        )}
+      </span>
+    );
+  };
+
   const sections = text.split(
     /(Summary:|What changed:|Underlying observations:|Why it likely changed:|What it means:|What NOT to conclude:|Evidence strength:)/g
   );
@@ -189,15 +802,7 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
       return null;
     }
 
-    const isHeader = [
-      "Summary:",
-      "What changed:",
-      "Underlying observations:",
-      "Why it likely changed:",
-      "What it means:",
-      "What NOT to conclude:",
-      "Evidence strength:",
-    ].includes(currentHeader);
+    const isHeader = HEADER_KEYS.includes(currentHeader as any);
 
     if (isHeader) {
       return (
@@ -209,12 +814,11 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
             />
             <h4
               className={cn(
-                "text-[10px] font-black uppercase tracking-[0.34em]",
-                "text-blue-600/80 dark:text-blue-400/80",
-                "transition-opacity duration-200 opacity-85 group-hover:opacity-100"
+                "text-[11px] md:text-[12px] font-black uppercase tracking-[0.28em]",
+                theme === "dark" ? "text-white/70" : "text-zinc-600"
               )}
             >
-              {currentHeader.replace("Evidence", "Confidence").replace(":", "")}
+              {tSection(currentHeader, lang)}
             </h4>
           </div>
 
@@ -236,55 +840,11 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
                 const pct = parseEvidencePercent(parsed.note);
                 const cleanNote = stripScoreFromNote(parsed.note);
 
-                const pill = (lvl: "Low" | "Medium" | "High" | null) => {
-                  const map: Record<string, string> = {
-                    High: "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-emerald-500/25",
-                    Medium: "bg-amber-500/10 text-amber-900 dark:text-amber-200 border-amber-500/25",
-                    Low: "bg-rose-500/10 text-rose-800 dark:text-rose-200 border-rose-500/25",
-                    null: "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200 border-zinc-500/25",
-                  };
-
-                  return (
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border",
-                        "text-[11px] font-black uppercase tracking-[0.18em]",
-                        "shadow-[0_1px_0_rgba(255,255,255,0.32)] dark:shadow-[0_1px_0_rgba(255,255,255,0.08)]",
-                        "transition-transform duration-200 will-change-transform",
-                        "hover:translate-y-[-1px]",
-                        map[lvl ?? "null"]
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "h-1.5 w-1.5 rounded-full",
-                          lvl === "High"
-                            ? "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.40)]"
-                            : lvl === "Medium"
-                            ? "bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.30)]"
-                            : lvl === "Low"
-                            ? "bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.30)]"
-                            : "bg-zinc-400"
-                        )}
-                      />
-                      <span>{lvl ?? "Unknown"}</span>
-                      {typeof pct === "number" && (
-                        <span
-                          className={cn(
-                            "ml-1 px-2 py-0.5 rounded-full border text-[10px] font-black tracking-[0.14em]",
-                            theme === "dark" ? "border-white/10 bg-white/[0.03]" : "border-black/10 bg-black/[0.03]"
-                          )}
-                        >
-                          {pct}%
-                        </span>
-                      )}
-                    </span>
-                  );
-                };
-
                 return (
                   <div className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-3">{pill(parsed.level)}</div>
+<div className="flex flex-wrap items-center gap-3">
+  {pill(parsed.level, pct ?? undefined)}
+</div>
 
                     <p
                       className={cn(
@@ -292,7 +852,7 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
                         theme === "dark" ? "text-white/90" : "text-zinc-800"
                       )}
                     >
-                      <span className="font-semibold mr-1">Reason:</span>
+                      <span className="font-semibold mr-1">{reasonLabel}</span>
                       {cleanNote || trimmed}
                     </p>
                   </div>
@@ -301,16 +861,7 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
             ) : (
               trimmed.split("\n").map((line, li) => {
                 const l = line ?? "";
-                const autoBulletHeaders = new Set([
-                  "What changed:",
-                  "Underlying observations:",
-                  "Why it likely changed:",
-                  "What it means:",
-                  "What NOT to conclude:",
-                  "Evidence strength:",
-                ]);
-
-                const forceBullet = autoBulletHeaders.has(currentHeader);
+                const forceBullet = AUTO_BULLET_HEADERS.has(currentHeader);
                 const isBullet = forceBullet || l.trim().startsWith("-") || l.trim().startsWith("•");
                 const cleaned = l.trim().replace(/^[-•]\s*/, "");
 
@@ -334,22 +885,23 @@ function ElegantAnalysis({ text, theme }: { text: string; theme: Theme }) {
       );
     }
 
+    // Fallback: render any text that isn't inside a recognized section
     return (
-      <p key={i} className={cn("mb-4", theme === "dark" ? "text-white/78" : "text-zinc-600")}>
+      <p
+        key={i}
+        className={cn(
+          "text-[15px] md:text-[17px] leading-[1.8] font-medium tracking-[-0.012em]",
+          theme === "dark" ? "text-white/92" : "text-zinc-800"
+        )}
+      >
         {trimmed}
       </p>
     );
   });
 
-  return (
-    <div
-      id="analysis-content"
-      className={cn("animate-in fade-in slide-in-from-bottom-3 duration-700", "motion-reduce:animate-none")}
-    >
-      {rendered}
-    </div>
-  );
+  return <div>{rendered}</div>;
 }
+
 
 function VisualAnalysisLoader() {
   return (
@@ -381,13 +933,59 @@ function VisualAnalysisLoader() {
   );
 }
 
-function ElegantPill({ level }: { level: "Low" | "Medium" | "High" | null }) {
+function ElegantPill({
+  level,
+  lang,
+}: {
+  level: "Low" | "Medium" | "High" | null;
+  lang?: string;
+}) {
   const config: Record<string, string> = {
     High: "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-emerald-500/25",
     Medium: "bg-amber-500/10 text-amber-900 dark:text-amber-200 border-amber-500/25",
     Low: "bg-rose-500/10 text-rose-800 dark:text-rose-200 border-rose-500/25",
     null: "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200 border-zinc-500/25",
   };
+
+  const langNorm = normalizeLang(lang);
+
+  const LEVEL_LABELS: Record<string, Record<"High" | "Medium" | "Low" | "Unknown", string>> = {
+    en: { High: "High", Medium: "Medium", Low: "Low", Unknown: "Unknown" },
+    it: { High: "Alta", Medium: "Media", Low: "Bassa", Unknown: "Sconosciuta" },
+    fr: { High: "Élevée", Medium: "Moyenne", Low: "Faible", Unknown: "Inconnue" },
+    es: { High: "Alta", Medium: "Media", Low: "Baja", Unknown: "Desconocida" },
+    de: { High: "Hoch", Medium: "Mittel", Low: "Niedrig", Unknown: "Unbekannt" },
+    pt: { High: "Alta", Medium: "Média", Low: "Baixa", Unknown: "Desconhecida" },
+    nl: { High: "Hoog", Medium: "Gemiddeld", Low: "Laag", Unknown: "Onbekend" },
+    sv: { High: "Hög", Medium: "Medel", Low: "Låg", Unknown: "Okänd" },
+    no: { High: "Høy", Medium: "Middels", Low: "Lav", Unknown: "Ukjent" },
+    da: { High: "Høj", Medium: "Middel", Low: "Lav", Unknown: "Ukendt" },
+    fi: { High: "Korkea", Medium: "Keskitaso", Low: "Matala", Unknown: "Tuntematon" },
+    pl: { High: "Wysoka", Medium: "Średnia", Low: "Niska", Unknown: "Nieznana" },
+    tr: { High: "Yüksek", Medium: "Orta", Low: "Düşük", Unknown: "Bilinmeyen" },
+    el: { High: "Υψηλή", Medium: "Μέτρια", Low: "Χαμηλή", Unknown: "Άγνωστη" },
+    cs: { High: "Vysoká", Medium: "Střední", Low: "Nízká", Unknown: "Neznámá" },
+    hu: { High: "Magas", Medium: "Közepes", Low: "Alacsony", Unknown: "Ismeretlen" },
+    ro: { High: "Ridicată", Medium: "Mediu", Low: "Scăzută", Unknown: "Necunoscută" },
+    uk: { High: "Висока", Medium: "Середня", Low: "Низька", Unknown: "Невідома" },
+    ru: { High: "Высокая", Medium: "Средняя", Low: "Низкая", Unknown: "Неизвестная" },
+    ar: { High: "مرتفعة", Medium: "متوسطة", Low: "منخفضة", Unknown: "غير معروفة" },
+    he: { High: "גבוהה", Medium: "בינונית", Low: "נמוכה", Unknown: "לא ידועה" },
+    hi: { High: "उच्च", Medium: "मध्यम", Low: "निम्न", Unknown: "अज्ञात" },
+    bn: { High: "উচ্চ", Medium: "মাঝারি", Low: "নিম্ন", Unknown: "অজানা" },
+    ur: { High: "زیادہ", Medium: "درمیانی", Low: "کم", Unknown: "نامعلوم" },
+    id: { High: "Tinggi", Medium: "Sedang", Low: "Rendah", Unknown: "Tidak diketahui" },
+    ms: { High: "Tinggi", Medium: "Sederhana", Low: "Rendah", Unknown: "Tidak diketahui" },
+    th: { High: "สูง", Medium: "ปานกลาง", Low: "ต่ำ", Unknown: "ไม่ทราบ" },
+    vi: { High: "Cao", Medium: "Trung bình", Low: "Thấp", Unknown: "Không rõ" },
+    ja: { High: "高い", Medium: "中程度", Low: "低い", Unknown: "不明" },
+    ko: { High: "높음", Medium: "중간", Low: "낮음", Unknown: "알 수 없음" },
+    zh: { High: "高", Medium: "中等", Low: "低", Unknown: "未知" },
+  };
+
+  const labels = LEVEL_LABELS[langNorm] ?? LEVEL_LABELS.en;
+  const lvlKey = ((level ?? "Unknown") as "High" | "Medium" | "Low" | "Unknown");
+  const pillText = labels[lvlKey] ?? labels.Unknown;
 
   return (
     <span
@@ -411,10 +1009,13 @@ function ElegantPill({ level }: { level: "Low" | "Medium" | "High" | null }) {
             : "bg-zinc-400"
         )}
       />
-      Confidence {level ?? "Unknown"}
+    <span>{UI_LABELS.confidence[langNorm] ?? UI_LABELS.confidence.en} · {pillText}</span>
+
+
     </span>
   );
 }
+
 
 function IconButton({
   title,
@@ -425,7 +1026,7 @@ function IconButton({
 }: {
   title: string;
   onClick?: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
   tone?: "neutral" | "danger";
   className?: string;
 }) {
@@ -849,6 +1450,9 @@ function PrivacyModalContent({ theme }: { theme: Theme }) {
   );
 }
 
+
+
+
 export default function HomePage() {
   const [theme, setTheme] = useState<Theme>("light");
   const [text, setText] = useState("");
@@ -857,7 +1461,7 @@ export default function HomePage() {
   const [result, setResult] = useState<ExplainResult | null>(null);
   const [lastRunInput, setLastRunInput] = useState<string>("");
   const [copied, setCopied] = useState(false);
-
+const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [lastHttpStatus, setLastHttpStatus] = useState<number | null>(null);
 
@@ -869,13 +1473,16 @@ export default function HomePage() {
 
   // ✅ NEW: Paywall state + subscribe flow
   const [paywall, setPaywall] = useState<null | { message: string; reason?: string }>(null);
-  const [isSubscribing, setIsSubscribing] = useState(false);
+  
 
   // ✅ NEW: Magic link request (secondary CTA)
   const [magicOpen, setMagicOpen] = useState(false);
   const [magicEmail, setMagicEmail] = useState("");
   const [magicBusy, setMagicBusy] = useState(false);
   const [magicNote, setMagicNote] = useState<string>(""); // success / error, shown inline
+
+  // ✅ NEW: tracks why we’re sending the magic link
+  const [magicIntent, setMagicIntent] = useState<"trial" | "subscribe">("trial");
 
   const gateRef = useRef<{ token: string; expMs: number } | null>(null);
   const gateInFlight = useRef<Promise<string> | null>(null);
@@ -1003,43 +1610,68 @@ export default function HomePage() {
   }, []);
 
   // ✅ Nice little inline banners from query params (minimal, no UI restructuring)
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    const magic = url.searchParams.get("magic"); // ok | error
-    const billing = url.searchParams.get("billing"); // success | cancel
+useEffect(() => {
+  const url = new URL(window.location.href);
 
-    if (billing === "success") {
-      setPaywall(null);
-      setMagicNote("");
+  const magic = url.searchParams.get("magic"); // ok | error
+  const reason = url.searchParams.get("reason") ?? "unknown";
+
+  // Backends may use either of these (you now use subscribe=success|cancel)
+  const billingParam = url.searchParams.get("billing"); // success | cancel
+  const subscribeParam = url.searchParams.get("subscribe"); // success | cancel
+
+  // Your verify-magic-link redirects to /?magic=ok&intent=trial or intent=subscribe_required
+  const intent = url.searchParams.get("intent"); // trial | subscribe_required | (etc)
+
+  const checkoutStatus = subscribeParam || billingParam; // normalize
+
+  // ✅ Checkout result (subscription)
+  if (checkoutStatus === "success") {
+    setPaywall(null);
+    setMagicNote("");
+    setMagicOpen(false);
+    setExplainBlockReason("Subscription active. You can continue.");
+    window.setTimeout(() => setExplainBlockReason(""), 2200);
+  } else if (checkoutStatus === "cancel") {
+    setExplainBlockReason("Checkout cancelled.");
+    window.setTimeout(() => setExplainBlockReason(""), 1800);
+  }
+
+  // ✅ Magic link results
+  if (magic === "ok") {
+    // If they tried to start another trial, tell them nicely what to do next
+    if (intent === "subscribe_required") {
+      setMagicNote("Free trial already used for this email. Please subscribe to continue.");
       setMagicOpen(false);
-      setExplainBlockReason("Subscription active. You can continue.");
-      window.setTimeout(() => setExplainBlockReason(""), 2200);
-    }
-
-    if (billing === "cancel") {
-      setExplainBlockReason("Checkout cancelled.");
-      window.setTimeout(() => setExplainBlockReason(""), 1800);
-    }
-
-    if (magic === "ok") {
+      setExplainBlockReason("Free trial already used — subscription required after the trial period.");
+      window.setTimeout(() => setExplainBlockReason(""), 2600);
+    } else if (intent === "trial") {
+      setMagicNote("Trial started. You can continue.");
+      setMagicOpen(false);
+      window.setTimeout(() => setMagicNote(""), 2200);
+    } else {
       setMagicNote("Signed in. You can continue.");
       setMagicOpen(false);
       window.setTimeout(() => setMagicNote(""), 2200);
     }
+  } else if (magic === "error") {
+    setMagicNote(`Magic link failed (${reason}). Try requesting a new one.`);
+  }
 
-    if (magic === "error") {
-      const reason = url.searchParams.get("reason") ?? "unknown";
-      setMagicNote(`Magic link failed (${reason}). Try requesting a new one.`);
-    }
+  // ✅ Keep URL clean (no reload)
+  const shouldClean =
+    !!magic || !!reason || !!billingParam || !!subscribeParam || !!intent;
 
-    // Keep URL clean (no reload)
-    if (magic || billing) {
-      url.searchParams.delete("magic");
-      url.searchParams.delete("reason");
-      url.searchParams.delete("billing");
-      window.history.replaceState({}, "", url.toString());
-    }
-  }, []);
+  if (shouldClean) {
+    url.searchParams.delete("magic");
+    url.searchParams.delete("reason");
+    url.searchParams.delete("billing");
+    url.searchParams.delete("subscribe");
+    url.searchParams.delete("intent");
+    window.history.replaceState({}, "", url.toString());
+  }
+}, []);
+
 
   const getGateToken = async (forceRefresh = false): Promise<string> => {
     const cached = gateRef.current;
@@ -1097,11 +1729,22 @@ export default function HomePage() {
       return h;
     };
 
-    let res = await fetch("/api/explain", {
-      method: init.method,
-      body: init.body ?? null,
-      headers: makeHeaders(init.headers, token),
-    });
+const langParam =
+  typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("lang")
+    : null;
+
+const explainUrl = langParam
+  ? `/api/explain?lang=${encodeURIComponent(langParam)}`
+  : "/api/explain";
+
+    
+let res = await fetch(explainUrl, {
+  method: init.method,
+  body: init.body ?? null,
+  headers: makeHeaders(init.headers, token),
+});
+
 
     if (res.status === 401) {
       let isGate = true;
@@ -1112,14 +1755,15 @@ export default function HomePage() {
         isGate = true;
       }
 
-      if (isGate) {
-        const fresh = await getGateToken(true);
-        res = await fetch("/api/explain", {
-          method: init.method,
-          body: init.body ?? null,
-          headers: makeHeaders(init.headers, fresh),
-        });
-      }
+if (isGate) {
+  const fresh = await getGateToken(true);
+  res = await fetch(explainUrl, {
+    method: init.method,
+    body: init.body ?? null,
+    headers: makeHeaders(init.headers, fresh),
+  });
+}
+
     }
 
     return res;
@@ -1167,66 +1811,86 @@ export default function HomePage() {
     setFileStatusLine("");
   };
 
-  /** ✅ Subscribe (Stripe Checkout) */
-  async function handleSubscribe() {
-    try {
-      setIsSubscribing(true);
-      setExplainBlockReason("");
-      setMagicNote("");
+const [subLoading, setSubLoading] = useState(false);
 
-      const r = await fetch("/api/billing/create-checkout-session", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
-      });
+async function goSubscribe() {
+  // ✅ Requirement #2: Subscribe button → email → magic link → click → Stripe checkout
+  setMagicIntent("subscribe");
+  setMagicOpen(true);
+  setMagicNote("");
+  setExplainBlockReason("");
 
-      const body = await r.json().catch(() => null);
+  // optional: focus the user mentally
+  setMagicNote("Enter your email to receive a secure sign-in link.");
+}
 
-      if (!r.ok || !body?.url) {
-        throw new Error(body?.error || "Could not start checkout.");
-      }
 
-      window.location.href = body.url;
-    } catch (e) {
-      console.error(e);
-      setExplainBlockReason("Could not open checkout. Please try again.");
-    } finally {
-      setIsSubscribing(false);
-    }
+
+
+async function refreshBillingStatus() {
+  try {
+    const r = await fetch("/api/billing/status", { method: "GET" });
+    const j = (await r.json().catch(() => null)) as any;
+    if (j?.ok) setBilling({ canExplain: !!j.canExplain, reason: j.reason, trialEndsAt: j.trialEndsAt ?? null });
+  } catch {
+    // silent
   }
+}
+
+useEffect(() => {
+  refreshBillingStatus();
+  // ✅ Always do a second refresh shortly after mount (cookie/session can settle)
+  setTimeout(() => refreshBillingStatus(), 350);
+}, []);
+
+
+
+  
 
   /** ✅ Secondary CTA: request a new magic link (start trial / re-auth) */
   async function handleSendMagicLink() {
-    try {
-      setMagicBusy(true);
-      setMagicNote("");
+  try {
+    setMagicBusy(true);
+    setMagicNote("");
 
-      const email = magicEmail.trim().toLowerCase();
-      if (!email || !email.includes("@")) {
-        setMagicNote("Enter a valid email address.");
-        return;
-      }
-
-      const r = await fetch("/api/auth/start-trial", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-
-      const body = await r.json().catch(() => null);
-
-      if (!r.ok || !body?.ok) {
-        throw new Error(body?.error || "Could not send magic link.");
-      }
-
-      setMagicNote("Magic link sent. Check your inbox.");
-    } catch (e) {
-      console.error(e);
-      setMagicNote("Could not send magic link. Please try again.");
-    } finally {
-      setMagicBusy(false);
+    const email = magicEmail.trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      setMagicNote("Enter a valid email address.");
+      return;
     }
+
+    // ✅ Choose backend route based on intent
+    const endpoint =
+      magicIntent === "trial"
+        ? "/api/auth/start-trial"
+        : "/api/auth/start-subscribe";
+
+    const r = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+
+    const body = await r.json().catch(() => null);
+
+    if (!r.ok || !body?.ok) {
+      throw new Error(body?.error || "Could not send magic link.");
+    }
+
+    // ✅ Better UX message based on flow
+    setMagicNote(
+      magicIntent === "trial"
+        ? "Magic link sent. Click it to start your 3-day trial."
+        : "Magic link sent. Click it to continue to Stripe Checkout."
+    );
+  } catch (e) {
+    console.error(e);
+    setMagicNote("Could not send magic link. Please try again.");
+  } finally {
+    setMagicBusy(false);
   }
+}
+
 
   /** ✅ Explain is ALWAYS clickable; we enforce validation inside. */
   const explain = async () => {
@@ -1396,7 +2060,7 @@ export default function HomePage() {
 
   const showEditToRerun = !hasFile && hasResult && !inputChangedSinceRun;
   const textareaLocked = hasFile;
-
+const chip = buildTrialChip(billing);
   return (
 <div
   className={cn(
@@ -1455,20 +2119,97 @@ export default function HomePage() {
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-            className={cn(
-              "p-2 rounded-full transition-all active:scale-[0.98]",
-              "hover:bg-zinc-200/60 dark:hover:bg-white/6",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-              "shadow-[0_1px_0_rgba(255,255,255,0.18)] dark:shadow-[0_1px_0_rgba(255,255,255,0.06)]"
-            )}
-            title="Toggle theme"
-            aria-label="Toggle theme"
-          >
-            {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
-          </button>
+ <div className="flex items-center gap-3">
+  {chip && (
+    <div className="flex items-center gap-2">
+      {/* CHIP */}
+      <div
+        className={cn(
+          "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 select-none",
+          "text-[11px] font-semibold tracking-[-0.01em] backdrop-blur-xl",
+          theme === "dark"
+            ? chip.tone === "trial"
+              ? "bg-white/[0.04] border-white/10 text-white/85"
+              : chip.tone === "good"
+                ? "bg-white/[0.06] border-white/12 text-white/90"
+                : "bg-white/[0.03] border-white/10 text-white/70"
+            : chip.tone === "trial"
+              ? "bg-white border-zinc-200 text-zinc-800"
+              : chip.tone === "good"
+                ? "bg-white border-zinc-200 text-zinc-900"
+                : "bg-white border-zinc-200 text-zinc-700"
+        )}
+        title={
+          chip.tone === "trial"
+            ? "Your trial is active"
+            : chip.tone === "ended"
+              ? "Your trial has ended"
+              : "Subscription active"
+        }
+      >
+        <span
+          className={cn(
+            "h-1.5 w-1.5 rounded-full",
+            chip.tone === "trial"
+              ? theme === "dark"
+                ? "bg-indigo-300/80"
+                : "bg-indigo-600/70"
+              : chip.tone === "good"
+                ? theme === "dark"
+                  ? "bg-emerald-300/80"
+                  : "bg-emerald-600/70"
+                : theme === "dark"
+                  ? "bg-white/35"
+                  : "bg-zinc-400"
+          )}
+          aria-hidden="true"
+        />
+        <span className="font-bold">{chip.title}</span>
+        <span className={cn(theme === "dark" ? "text-white/55" : "text-zinc-500")}>·</span>
+        <span className={cn(theme === "dark" ? "text-white/70" : "text-zinc-600")}>
+          {chip.sub}
+        </span>
+      </div>
+
+      {/* SUBSCRIBE CTA (only when ended) */}
+      {chip.cta === "subscribe" && (
+        <button
+          onClick={goSubscribe}
+          disabled={subLoading}
+          className={cn(
+            "inline-flex items-center justify-center rounded-full px-3 py-1.5",
+            "text-[11px] font-semibold tracking-tight",
+            theme === "dark"
+              ? "bg-white/10 hover:bg-white/15 text-white border border-white/10"
+              : "bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-900/10",
+            "transition-transform hover:scale-[1.04] active:scale-[0.96]",
+            "disabled:opacity-60 disabled:cursor-not-allowed"
+          )}
+        >
+          {subLoading ? "Redirecting…" : "Subscribe"}
+        </button>
+      )}
+    </div>
+  )}
+
+  {/* EXISTING THEME TOGGLE */}
+  <button
+    type="button"
+    onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+    className={cn(
+      "p-2 rounded-full transition-all active:scale-[0.98]",
+      "hover:bg-zinc-200/60 dark:hover:bg-white/6",
+      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+      "shadow-[0_1px_0_rgba(255,255,255,0.18)] dark:shadow-[0_1px_0_rgba(255,255,255,0.06)]"
+    )}
+    title="Toggle theme"
+    aria-label="Toggle theme"
+  >
+    {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
+  </button>
+</div>
+
+
         </div>
       </nav>
 
@@ -1594,319 +2335,577 @@ export default function HomePage() {
             </div>
           </div>
 
-         {/* 💎 2026 Ultra-Premium Paywall UI */}
+ {/* 💎 2026 Ultra-Premium Paywall UI (calmer + more Apple-grade) */}
 {paywall && (
-  <div className="px-6 md:px-10 pt-10 pb-6 animate-in fade-in zoom-in-95 duration-1000 ease-out-expo">
+  <div className="px-6 md:px-10 pt-10 pb-6 animate-in fade-in zoom-in-95 duration-700">
     <div
       className={cn(
         "rounded-[3rem] border overflow-hidden relative group isolate",
-        "transition-all duration-1000 cubic-bezier(0.16, 1, 0.3, 1)",
-        theme === "dark" 
-          ? "bg-zinc-950 border-white/[0.08] shadow-[0_0_0_1px_rgba(255,255,255,0.05),0_32px_64px_-16px_rgba(0,0,0,0.6)]" 
+        "transition-all duration-700 [transition-timing-function:cubic-bezier(0.16,1,0.3,1)]",
+        theme === "dark"
+          ? "bg-zinc-950 border-white/[0.08] shadow-[0_0_0_1px_rgba(255,255,255,0.05),0_32px_64px_-16px_rgba(0,0,0,0.6)]"
           : "bg-white border-zinc-200 shadow-[0_0_0_1px_rgba(0,0,0,0.03),0_32px_64px_-16px_rgba(0,0,0,0.12)]"
       )}
     >
-      {/* 2026 "Border Beam" Effect: A subtle moving light around the edge */}
-      <div className="absolute inset-[-2px] bg-[conic-gradient(from_0deg,transparent_0deg,transparent_150deg,rgba(99,102,241,0.4)_180deg,transparent_210deg)] opacity-0 group-hover:opacity-100 animate-[spin_4s_linear_infinite] transition-opacity duration-700 pointer-events-none" />
-
-      {/* Dynamic Mesh Background */}
-      <div className="absolute inset-0 -z-10 overflow-hidden">
-        <div className={cn(
-          "absolute -top-[40%] -left-[10%] w-[70%] h-[80%] rounded-full blur-[120px] transition-transform duration-1000 group-hover:-translate-y-4",
-          theme === "dark" ? "bg-indigo-500/10" : "bg-indigo-500/5"
-        )} />
-        <div className={cn(
-          "absolute -bottom-[20%] -right-[10%] w-[50%] h-[60%] rounded-full blur-[100px] opacity-50",
-          theme === "dark" ? "bg-purple-500/10" : "bg-purple-500/5"
-        )} />
+      {/* ✅ Keep border-beam (subtle) */}
+      <div className="pointer-events-none absolute inset-[-2px] opacity-0 group-hover:opacity-100 transition-opacity duration-700">
+        <div className="absolute inset-0 bg-[conic-gradient(from_0deg,transparent_0deg,transparent_150deg,rgba(99,102,241,0.28)_180deg,transparent_210deg)] animate-[spin_6s_linear_infinite]" />
       </div>
 
-      <div className="relative p-1 md:p-[2px]"> {/* Inner ring for the border beam */}
-        <div className={cn(
-          "rounded-[2.9rem] p-8 md:p-14 relative overflow-hidden",
-          theme === "dark" ? "bg-zinc-950/90" : "bg-white/90",
-          "backdrop-blur-3xl"
-        )}>
-          
+      {/* ✅ Calm mesh background (no extra shimmer overlays) */}
+      <div className="absolute inset-0 -z-10 overflow-hidden">
+        <div
+          className={cn(
+            "absolute -top-[40%] -left-[12%] w-[72%] h-[82%] rounded-full blur-[120px] opacity-60",
+            "transition-transform duration-1000 group-hover:-translate-y-3",
+            theme === "dark" ? "bg-indigo-500/12" : "bg-indigo-500/7"
+          )}
+        />
+        <div
+          className={cn(
+            "absolute -bottom-[22%] -right-[12%] w-[54%] h-[62%] rounded-full blur-[110px] opacity-45",
+            theme === "dark" ? "bg-purple-500/10" : "bg-purple-500/6"
+          )}
+        />
+      </div>
+
+      {/* Inner ring for beam */}
+      <div className="relative p-1 md:p-[2px]">
+        <div
+          className={cn(
+            "rounded-[2.9rem] p-8 md:p-14 relative overflow-hidden backdrop-blur-3xl",
+            theme === "dark" ? "bg-zinc-950/92" : "bg-white/92"
+          )}
+        >
           <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center md:items-start gap-10 md:gap-16">
-            
-            {/* Visual Anchor: Floating Abstract Icon */}
-            <div className="relative group/icon scale-110 md:scale-125">
-              <div className={cn(
-                "w-20 h-20 rounded-[2rem] flex items-center justify-center relative z-10",
-                "transition-all duration-700 group-hover/icon:rotate-[10deg] group-hover/icon:scale-110",
-                theme === "dark" 
-                  ? "bg-gradient-to-b from-zinc-800 to-zinc-900 border border-white/10" 
-                  : "bg-white border border-zinc-200 shadow-xl"
-              )}>
-                <CreditCard size={32} strokeWidth={1.2} className={theme === "dark" ? "text-indigo-400" : "text-indigo-600"} />
+            {/* Visual anchor */}
+            <div className="relative group/icon md:pt-1">
+              <div
+                className={cn(
+                  "w-20 h-20 rounded-[2rem] flex items-center justify-center relative z-10",
+                  "transition-all duration-700 group-hover/icon:rotate-[6deg] group-hover/icon:scale-[1.03]",
+                  theme === "dark"
+                    ? "bg-gradient-to-b from-zinc-800/70 to-zinc-900/90 border border-white/10"
+                    : "bg-white border border-zinc-200 shadow-[0_18px_50px_rgba(0,0,0,0.10)]"
+                )}
+              >
+                <CreditCard
+                  size={32}
+                  strokeWidth={1.3}
+                  className={theme === "dark" ? "text-indigo-300" : "text-indigo-600"}
+                />
               </div>
-              {/* Icon Reflection/Shadow */}
-              <div className="absolute inset-0 bg-indigo-500 blur-2xl opacity-20 scale-75 group-hover/icon:opacity-40 transition-opacity" />
+              <div className="absolute inset-0 bg-indigo-500 blur-2xl opacity-15 scale-75 group-hover/icon:opacity-25 transition-opacity" />
             </div>
 
             <div className="flex-1 text-center md:text-left space-y-6">
               <div className="space-y-3">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-indigo-500/20 bg-indigo-500/5">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
-                  </span>
-                  <span className={cn(
-                    "text-[10px] font-bold uppercase tracking-[0.3em]",
-                    theme === "dark" ? "text-indigo-300" : "text-indigo-700"
-                  )}>
-                    Access Restricted
+                {/* ✅ Calmer badge (no ping) */}
+                <div
+                  className={cn(
+                    "inline-flex items-center gap-2 px-3 py-1.5 rounded-full border",
+                    theme === "dark"
+                      ? "border-indigo-400/20 bg-indigo-400/5"
+                      : "border-indigo-600/15 bg-indigo-600/5"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "h-2 w-2 rounded-full",
+                      theme === "dark"
+                        ? "bg-indigo-300 shadow-[0_0_10px_rgba(129,140,248,0.35)]"
+                        : "bg-indigo-600 shadow-[0_0_10px_rgba(79,70,229,0.20)]"
+                    )}
+                    aria-hidden="true"
+                  />
+                  <span
+                    className={cn(
+                      "text-[10px] font-bold uppercase tracking-[0.32em]",
+                      theme === "dark" ? "text-indigo-200/90" : "text-indigo-700"
+                    )}
+                  >
+                    Access required
                   </span>
                 </div>
 
-                <h2 className={cn(
-                  "text-3xl md:text-4xl font-semibold tracking-tight leading-[1.1]",
-                  theme === "dark" ? "text-white" : "text-zinc-900"
-                )}>
-                  Experience without limits.
+                <h2
+                  className={cn(
+                    "text-3xl md:text-4xl font-semibold tracking-tight leading-[1.08]",
+                    theme === "dark" ? "text-white" : "text-zinc-900"
+                  )}
+                >
+                  Unlock full access.
                 </h2>
-                
-                <p className={cn(
-                  "text-[16px] md:text-[18px] leading-relaxed max-w-lg mx-auto md:mx-0 font-medium opacity-60",
-                  theme === "dark" ? "text-zinc-400" : "text-zinc-600"
-                )}>
-                  {paywall.reason || "Unlock exclusive features and high-performance tools designed for your workflow."}
+
+                <p
+                  className={cn(
+                    "text-[15px] md:text-[17px] leading-relaxed max-w-lg mx-auto md:mx-0 font-medium",
+                    theme === "dark" ? "text-zinc-300/80" : "text-zinc-600"
+                  )}
+                >
+                  {paywall.message}
                 </p>
-              </div>
 
-              {/* Action Container */}
-              <div className="pt-4 flex flex-col sm:flex-row items-center gap-5">
-                <button
-                  onClick={handleSubscribe}
-                  disabled={isSubscribing}
-                  className={cn(
-                    "relative w-full sm:w-auto px-10 py-5 rounded-full overflow-hidden transition-all duration-500",
-                    "text-base font-bold tracking-tight active:scale-95 shadow-2xl",
-                    theme === "dark" 
-                      ? "bg-white text-black hover:shadow-white/10" 
-                      : "bg-zinc-900 text-white hover:shadow-zinc-900/40"
-                  )}
-                >
-                  <span className="relative z-10 flex items-center justify-center gap-3">
-                    {isSubscribing ? (
-                      <Loader2 size={20} className="animate-spin" />
-                    ) : (
-                      <>
-                        Unlock Pro — £4.99/mo
-                        <ArrowRight size={20} />
-                      </>
+                {!!paywall.reason && (
+                  <p
+                    className={cn(
+                      "text-[13px] md:text-[14px] leading-relaxed max-w-lg mx-auto md:mx-0 font-medium",
+                      theme === "dark" ? "text-zinc-300/70" : "text-zinc-600/90"
                     )}
-                  </span>
-                  {/* High-end Shimmer Overlay */}
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-indigo-500/20 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite] transition-transform" />
-                </button>
-
-                <button
-                  onClick={() => setMagicOpen((v) => !v)}
-                  className={cn(
-                    "text-sm font-semibold underline-offset-8 hover:underline decoration-indigo-500/50 transition-all",
-                    theme === "dark" ? "text-zinc-400 hover:text-white" : "text-zinc-500 hover:text-zinc-900"
-                  )}
-                >
-                  Restore Access
-                </button>
+                  >
+                    {paywall.reason}
+                  </p>
+                )}
               </div>
+
+              {/* Actions */}
+<div className="pt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+  {/* ✅ 1) TRIAL FIRST (same size as subscribe) */}
+  <button
+    type="button"
+    onClick={() => {
+  setMagicIntent("trial");
+  setMagicOpen((v) => !v);
+  setMagicNote("");
+}}
+
+    className={cn(
+      "relative w-full sm:w-auto overflow-hidden group rounded-full",
+      "px-9 py-4", // ✅ match subscribe padding
+      "min-h-[56px]", // ✅ equal height
+      "sm:min-w-[260px]", // ✅ equal-ish desktop width
+      "cursor-pointer",
+      "transition-transform duration-300",
+"hover:scale-[1.08]",
+"active:scale-[0.93]",
+"motion-reduce:transform-none",
+
+      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+      theme === "dark"
+        ? [
+            // Premium dark glass (no weird purple)
+            "bg-white/[0.04] text-white/92",
+            "border border-white/12",
+            "hover:bg-white/[0.06] hover:border-white/18",
+            "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.55)]",
+          ].join(" ")
+        : [
+            // Premium light “soft white” (clean against black)
+            "bg-white text-zinc-900",
+            "border border-zinc-200",
+            "hover:bg-zinc-50 hover:border-zinc-300",
+            "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.16)]",
+          ].join(" ")
+    )}
+    title="Start your 3-day free trial (no card). Or restore access if your session expired."
+  >
+    {/* soft inner highlight */}
+    <span
+      className={cn(
+        "pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500",
+        theme === "dark"
+          ? "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.18),transparent_55%)]"
+          : "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.10),transparent_55%)]"
+      )}
+    />
+
+    {/* very subtle sweep (less loud) */}
+    <span
+      className={cn(
+        "pointer-events-none absolute -inset-y-6 -left-1/2 w-1/3 rotate-12",
+        theme === "dark"
+  ? "bg-gradient-to-r from-transparent via-white/10 to-transparent"
+  : "bg-gradient-to-r from-transparent via-black/10 to-transparent",
+
+        "translate-x-[-120%] group-hover:translate-x-[420%]",
+        "transition-transform duration-[1200ms] ease-out"
+      )}
+    />
+
+    <span className="relative z-10 flex items-center justify-center gap-3">
+      {/* small dot */}
+      <span
+        className={cn(
+          "h-1.5 w-1.5 rounded-full shrink-0",
+          theme === "dark" ? "bg-indigo-300/80" : "bg-indigo-600/70"
+        )}
+        aria-hidden="true"
+      />
+      <span className="flex flex-col items-start leading-tight">
+        <span className="text-[15px] font-semibold tracking-[-0.01em]">
+          Continue free trial
+        </span>
+        <span
+          className={cn(
+            "mt-0.5 text-[11px] font-medium",
+            theme === "dark" ? "text-white/60" : "text-zinc-500"
+          )}
+        >
+          3-day trial · No card
+        </span>
+      </span>
+
+      <span
+        className={cn(
+          "ml-2 opacity-70 group-hover:opacity-90 transition-opacity",
+          theme === "dark" ? "text-white/70" : "text-zinc-600"
+        )}
+        aria-hidden="true"
+      >
+        →
+      </span>
+    </span>
+  </button>
+
+  {/* ✅ 2) SUBSCRIBE SECOND */}
+  <button
+    type="button"
+    onClick={goSubscribe}
+    disabled={subLoading}
+    className={cn(
+      "relative w-full sm:w-auto overflow-hidden rounded-full",
+      "px-9 py-4",
+      "min-h-[56px]",
+      "sm:min-w-[260px]", // match trial
+      "cursor-pointer",
+      "transition-transform duration-300",
+"hover:scale-[1.08]",
+"active:scale-[0.93]",
+"motion-reduce:transform-none",
+
+      "text-[15px] font-semibold tracking-[-0.01em]",
+      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/35 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+      theme === "dark"
+        ? "bg-white text-black shadow-[0_18px_50px_-18px_rgba(255,255,255,0.22)] hover:opacity-95"
+        : "bg-zinc-900 text-white shadow-[0_18px_50px_-18px_rgba(0,0,0,0.35)] hover:bg-black",
+      subLoading && "opacity-90 cursor-wait"
+    )}
+  >
+    <span className="relative z-10 flex items-center justify-center gap-3">
+      {subLoading? (
+        <>
+          <Loader2 size={18} className="animate-spin motion-reduce:animate-none" />
+          <span>Redirecting…</span>
+        </>
+      ) : (
+        <span className="flex flex-col items-center leading-tight">
+          <span className="flex items-center gap-3">
+            <span>Subscribe £4.99/mo</span>
+            <ArrowRight size={18} className="opacity-85" />
+          </span>
+          <span className="mt-0.5 text-[11px] font-medium opacity-70">
+            Full access · Fair use
+          </span>
+        </span>
+      )}
+    </span>
+  </button>
+</div>
+
             </div>
           </div>
 
-          {/* Collapsible Magic Panel with 2026 Micro-layout */}
+          {/* ✅ Collapsible Magic Panel (calmer + more standard email field) */}
           {magicOpen && (
-            <div className="mt-12 animate-in fade-in slide-in-from-top-4 duration-700 cubic-bezier(0.16, 1, 0.3, 1)">
-              <div className={cn(
-                "p-px rounded-[2.5rem] bg-gradient-to-b",
-                theme === "dark" ? "from-white/10 to-transparent" : "from-zinc-200 to-transparent"
-              )}>
-                <div className={cn(
-                  "rounded-[2.4rem] p-8 md:p-10 flex flex-col md:flex-row gap-6 items-end justify-between",
-                  theme === "dark" ? "bg-zinc-900/50" : "bg-zinc-50/50"
-                )}>
-                  <div className="w-full space-y-4">
+            <div className="mt-10 animate-in fade-in slide-in-from-top-3 duration-500">
+              <div
+                className={cn(
+                  "p-px rounded-[2.25rem] bg-gradient-to-b",
+                  theme === "dark" ? "from-white/10 to-transparent" : "from-zinc-200 to-transparent"
+                )}
+              >
+                <div
+                  className={cn(
+                    "rounded-[2.15rem] p-6 md:p-8",
+                    "flex flex-col md:flex-row gap-4 md:items-end md:justify-between",
+                    theme === "dark" ? "bg-zinc-900/45" : "bg-zinc-50/60"
+                  )}
+                >
+                  <div className="w-full space-y-3">
                     <div className="space-y-1">
-                      <h4 className="text-sm font-bold uppercase tracking-widest opacity-50">Security Check</h4>
-                      <p className="text-xs opacity-40 italic">We'll send a one-time secure entry link.</p>
+                      <p
+                        className={cn(
+                          "text-[10px] font-black uppercase tracking-[0.28em]",
+                          theme === "dark" ? "text-white/55" : "text-zinc-600"
+                        )}
+                      >
+                        Secure email link
+                      </p>
+                      <p className={cn("text-[12px] font-medium", theme === "dark" ? "text-white/55" : "text-zinc-600")}>
+                        We’ll send a one-time sign-in link to restore access.
+                      </p>
                     </div>
-                    <input
-                      value={magicEmail}
-                      onChange={(e) => setMagicEmail(e.target.value)}
-                      placeholder="Enter your authorized email"
-                      className={cn(
-                        "w-full bg-transparent text-xl font-light py-2 outline-none border-b-2 transition-all",
-                        theme === "dark" 
-                          ? "border-white/10 focus:border-indigo-500 placeholder:text-zinc-700" 
-                          : "border-zinc-200 focus:border-indigo-600 placeholder:text-zinc-300"
-                      )}
-                    />
+
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <div className="flex-1">
+                        <label
+                          className={cn(
+                            "text-[10px] font-black uppercase tracking-[0.24em]",
+                            theme === "dark" ? "text-white/55" : "text-zinc-600"
+                          )}
+                        >
+                          Email
+                        </label>
+                        <input
+                          value={magicEmail}
+                          onChange={(e) => setMagicEmail(e.target.value)}
+                          placeholder="you@company.com"
+                          className={cn(
+                            "mt-2 w-full rounded-2xl border bg-transparent px-4 py-3 outline-none",
+                            "text-[15px] md:text-[16px] font-medium tracking-[-0.01em]",
+                            "focus-visible:ring-2 focus-visible:ring-indigo-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                            theme === "dark"
+                              ? "border-white/10 text-white/90 placeholder:text-white/25"
+                              : "border-zinc-200 text-zinc-900 placeholder:text-zinc-400"
+                          )}
+                          inputMode="email"
+                          autoComplete="email"
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleSendMagicLink}
+                        disabled={magicBusy}
+                        className={cn(
+                          "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl",
+                          "text-[13px] font-semibold tracking-[-0.01em]",
+                          "transition-transform duration-300",
+"hover:scale-[1.13]",            // 👈 subtle zoom-in on hover
+"active:scale-[0.88]",           // 👈 gentle press-down
+"motion-reduce:transform-none",  // 👈 accessibility-safe
+
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/35 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                          "cursor-pointer",
+                          theme === "dark"
+                            ? "bg-white text-black hover:opacity-95"
+                            : "bg-zinc-900 text-white hover:bg-black",
+                          magicBusy && "opacity-90 cursor-wait",
+                          "md:mt-7"
+                        )}
+                      >
+                        {magicBusy ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />
+                            <span>Sending…</span>
+                          </>
+                        ) : (
+                          <>
+                            <Mail size={16} className="opacity-85" />
+                            <span>Send link</span>
+                            <ArrowRight size={16} className="opacity-80" />
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {!!magicNote && (
+                      <div className="mt-2">
+                        <div
+                          className={cn(
+                            "inline-flex items-center gap-2 rounded-2xl border px-3.5 py-2",
+                            "text-[12px] font-semibold tracking-[-0.01em]",
+                            theme === "dark"
+                              ? "bg-white/[0.02] border-white/10 text-white/70"
+                              : "bg-white border-zinc-200 text-zinc-700"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "h-1.5 w-1.5 rounded-full",
+                              theme === "dark" ? "bg-white/35" : "bg-zinc-400"
+                            )}
+                          />
+                          <span>{magicNote}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <p className={cn("mt-2 text-[11px] leading-relaxed", theme === "dark" ? "text-white/45" : "text-zinc-500")}>
+                      Use this if your session expired or you opened the app on a new device.
+                    </p>
                   </div>
-                  <button
-                    onClick={handleSendMagicLink}
-                    disabled={magicBusy}
-                    className="shrink-0 w-full md:w-16 h-16 rounded-full bg-indigo-600 flex items-center justify-center text-white hover:bg-indigo-500 transition-all hover:scale-110 active:scale-90"
-                  >
-                    {magicBusy ? <Loader2 className="animate-spin" /> : <Send size={24} />}
-                  </button>
                 </div>
               </div>
             </div>
           )}
 
-          <div className="mt-12 flex justify-center border-t border-white/5 pt-8">
-             <button
-              onClick={() => setPaywall(null)}
-              className="text-[11px] font-black uppercase tracking-[0.4em] opacity-30 hover:opacity-100 transition-all duration-500"
+          {/* ✅ Calmer dismissal language */}
+          <div className={cn("mt-10 flex justify-center pt-6", theme === "dark" ? "border-t border-white/5" : "border-t border-zinc-200/60")}>
+            <button
+              type="button"
+              onClick={() => {
+                setPaywall(null);
+                setMagicOpen(false);
+                setMagicNote("");
+              }}
+              className={cn(
+                "text-[11px] font-black uppercase tracking-[0.36em] transition-opacity duration-300",
+                "cursor-pointer",
+                theme === "dark" ? "text-white/40 hover:text-white/75" : "text-zinc-500 hover:text-zinc-900"
+              )}
             >
-              Dismiss Overlay
+              Dismiss
             </button>
           </div>
-
         </div>
       </div>
     </div>
   </div>
 )}
 
-          {/* ✅ Inline “why it didn’t run” line — fades/animates elegantly */}
-          {!!explainBlockReason && (
-            <div className="px-6 md:px-10 pt-4 pb-1">
-              <div
-                className={cn(
-                  "emn-fade",
-                  "inline-flex items-center gap-2 rounded-2xl border px-3.5 py-2",
-                  "text-[12px] font-semibold tracking-[-0.01em]",
-                  theme === "dark" ? "bg-rose-500/8 border-rose-500/20 text-rose-200" : "bg-rose-500/6 border-rose-500/15 text-rose-700"
-                )}
-              >
-                <AlertCircle size={14} className="opacity-80" />
-                <span>{explainBlockReason}</span>
-              </div>
-            </div>
-          )}
 
-          {hasFile && fileStatusLine && (
-            <div className="px-6 md:px-10 pt-1 pb-1">
-              <div
-                className={cn(
-                  "emn-fade",
-                  "inline-flex items-center gap-2 rounded-2xl border px-3.5 py-2",
-                  "text-[12px] font-semibold tracking-[-0.01em]",
-                  theme === "dark" ? "bg-white/[0.02] border-white/10 text-white/70" : "bg-white/70 border-zinc-200 text-zinc-700"
-                )}
-              >
-                <span className={cn("h-1.5 w-1.5 rounded-full", theme === "dark" ? "bg-white/35" : "bg-zinc-400")} />
-                <span>{fileStatusLine}</span>
-              </div>
-            </div>
-          )}
-
-          <textarea
-            value={text}
-            onChange={(e) => {
-              if (textareaLocked) return;
-              setText(e.target.value);
-              setExplainBlockReason("");
-              // keep paywall visible, but avoid stale magic note
-              setMagicNote("");
-            }}
-            disabled={textareaLocked}
-            placeholder={textareaLocked ? "" : "Paste your data here…"}
-            className={cn(
-              "w-full bg-transparent outline-none resize-none",
-              "text-[14px] md:text-[15px] leading-relaxed font-medium tracking-[-0.012em]",
-              "placeholder:text-zinc-400 dark:placeholder:text-zinc-700",
-              "h-[175px] md:h-[150px]",
-              "p-6 pb-24 md:pt-10 md:pb-10 md:pl-10 md:pr-6",
-              "overflow-y-auto emn-scroll",
-              "focus-visible:outline-none",
-              "transition-[color,opacity] duration-200",
-              textareaLocked && "cursor-not-allowed select-none opacity-70"
-            )}
-          />
-
-          {/* MOBILE CONTROLS */}
-          <div className="md:hidden sticky bottom-0 z-[5]">
-            <div
-              className={cn(
-                "flex items-center gap-2 p-2.5 border-t",
-                "rounded-none rounded-b-[2.5rem] backdrop-blur-2xl transition-all",
-                theme === "dark" ? "bg-white/[0.03] border-white/10" : "bg-white/70 border-zinc-200/60"
+          {/* ✅ Hide ALL input UI when paywall is active (prevents typed text showing under it) */}
+          {!paywall && (
+            <>
+              {/* ✅ Inline “why it didn’t run” line — fades/animates elegantly */}
+              {!!explainBlockReason && (
+                <div className="px-6 md:px-10 pt-4 pb-1">
+                  <div
+                    className={cn(
+                      "emn-fade",
+                      "inline-flex items-center gap-2 rounded-2xl border px-3.5 py-2",
+                      "text-[12px] font-semibold tracking-[-0.01em]",
+                      theme === "dark"
+                        ? "bg-rose-500/8 border-rose-500/20 text-rose-200"
+                        : "bg-rose-500/6 border-rose-500/15 text-rose-700"
+                    )}
+                  >
+                    <AlertCircle size={14} className="opacity-80" />
+                    <span>{explainBlockReason}</span>
+                  </div>
+                </div>
               )}
-            >
-              <label
-                className={cn(
-                  "p-3 rounded-full border active:scale-[0.98] transition-all cursor-pointer",
-                  "focus-within:ring-2 focus-within:ring-blue-500/40 focus-within:ring-offset-2 focus-within:ring-offset-transparent",
-                  "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.22)]",
-                  theme === "dark" ? "bg-white/10 text-zinc-200 border border-white/10" : "bg-zinc-100/80 text-zinc-800"
-                )}
-                title="Upload"
-                aria-label="Upload"
-              >
-                <Upload size={20} />
-                <input type="file" className="hidden" onChange={onFile} accept=".csv,.txt,.tsv,.xls,.xlsx" />
-              </label>
 
-              {/* ✅ mobile Explain: never disabled */}
-              <button
-                type="button"
-                onClick={explain}
-                className={cn(
-                  "flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-full transition-all active:scale-[0.99]",
-                  "text-[16px] font-semibold tracking-[-0.01em]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                  "cursor-pointer",
-                  "shadow-[0_18px_60px_rgba(0,0,0,0.12)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)]",
-                  overLimit
-                    ? "bg-rose-600 text-white border border-rose-500/30"
-                    : theme === "dark"
-                    ? "bg-white text-black border-transparent"
-                    : "bg-black text-white border-transparent"
-                )}
-              >
-                {loading ? (
-                  <span className="inline-flex items-center justify-center w-full">
-                    <Loader2 className="animate-spin motion-reduce:animate-none" size={18} />
-                  </span>
-                ) : overLimit ? (
-                  <>
-                    <AlertTriangle size={16} className="opacity-90 shrink-0" />
-                    <span className="text-[12px] font-semibold tracking-[-0.01em]">
-                      Over limit {charCount.toLocaleString()} / {MAX_INPUT_CHARS.toLocaleString()}
-                    </span>
-                  </>
-                ) : showEditToRerun ? (
-                  "Edit input to re-run"
-                ) : (
-                  "Explain"
-                )}
-              </button>
+              {hasFile && fileStatusLine && (
+                <div className="px-6 md:px-10 pt-1 pb-1">
+                  <div
+                    className={cn(
+                      "emn-fade",
+                      "inline-flex items-center gap-2 rounded-2xl border px-3.5 py-2",
+                      "text-[12px] font-semibold tracking-[-0.01em]",
+                      theme === "dark"
+                        ? "bg-white/[0.02] border-white/10 text-white/70"
+                        : "bg-white/70 border-zinc-200 text-zinc-700"
+                    )}
+                  >
+                    <span className={cn("h-1.5 w-1.5 rounded-full", theme === "dark" ? "bg-white/35" : "bg-zinc-400")} />
+                    <span>{fileStatusLine}</span>
+                  </div>
+                </div>
+              )}
 
-              <button
-                type="button"
-                onClick={reset}
+              <textarea
+                value={text}
+                onChange={(e) => {
+                  if (textareaLocked) return;
+                  setText(e.target.value);
+                  setExplainBlockReason("");
+                  // keep paywall visible, but avoid stale magic note
+                  setMagicNote("");
+                }}
+                disabled={textareaLocked}
+                placeholder={textareaLocked ? "" : "Paste your data here…"}
                 className={cn(
-                  "p-3 rounded-full border active:scale-[0.98] transition-all cursor-pointer",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                  "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.22)]",
-                  theme === "dark" ? "bg-white/10 text-zinc-200 border-white/10" : "bg-zinc-100/80 text-zinc-800 border-zinc-200"
+                  "w-full bg-transparent outline-none resize-none",
+                  "text-[14px] md:text-[15px] leading-relaxed font-medium tracking-[-0.012em]",
+                  "placeholder:text-zinc-400 dark:placeholder:text-zinc-700",
+                  "h-[175px] md:h-[150px]",
+                  "p-6 pb-24 md:pt-10 md:pb-10 md:pl-10 md:pr-6",
+                  "overflow-y-auto emn-scroll",
+                  "focus-visible:outline-none",
+                  "transition-[color,opacity] duration-200",
+                  textareaLocked && "cursor-not-allowed select-none opacity-70"
                 )}
-                title="Reset"
-                aria-label="Reset"
-              >
-                <RotateCcw size={20} />
-              </button>
-            </div>
+              />
 
-            {selectedFile && (
-              <div className="mt-2 px-2">
-                <FileChip file={selectedFile} theme={theme} onRemove={removeFile} />
+              {/* MOBILE CONTROLS */}
+              <div className="md:hidden sticky bottom-0 z-[5]">
+                <div
+                  className={cn(
+                    "flex items-center gap-2 p-2.5 border-t",
+                    "rounded-none rounded-b-[2.5rem] backdrop-blur-2xl transition-all",
+                    theme === "dark" ? "bg-white/[0.03] border-white/10" : "bg-white/70 border-zinc-200/60"
+                  )}
+                >
+                  <label
+                    className={cn(
+                      "p-3 rounded-full border active:scale-[0.98] transition-all cursor-pointer",
+                      "focus-within:ring-2 focus-within:ring-blue-500/40 focus-within:ring-offset-2 focus-within:ring-offset-transparent",
+                      "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.22)]",
+                      theme === "dark"
+                        ? "bg-white/10 text-zinc-200 border border-white/10"
+                        : "bg-zinc-100/80 text-zinc-800"
+                    )}
+                    title="Upload"
+                    aria-label="Upload"
+                  >
+                    <Upload size={20} />
+                    <input type="file" className="hidden" onChange={onFile} accept=".csv,.txt,.tsv,.xls,.xlsx" />
+                  </label>
+
+                  {/* ✅ mobile Explain: never disabled */}
+                  <button
+                    type="button"
+                    onClick={explain}
+                    className={cn(
+                      "flex-1 inline-flex items-center justify-center gap-2 py-3 rounded-full transition-all active:scale-[0.99]",
+                      "text-[16px] font-semibold tracking-[-0.01em]",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                      "cursor-pointer",
+                      "shadow-[0_18px_60px_rgba(0,0,0,0.12)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.35)]",
+                      overLimit
+                        ? "bg-rose-600 text-white border border-rose-500/30"
+                        : theme === "dark"
+                        ? "bg-white text-black border-transparent"
+                        : "bg-black text-white border-transparent"
+                    )}
+                  >
+                    {loading ? (
+                      <span className="inline-flex items-center justify-center w-full">
+                        <Loader2 className="animate-spin motion-reduce:animate-none" size={18} />
+                      </span>
+                    ) : overLimit ? (
+                      <>
+                        <AlertTriangle size={16} className="opacity-90 shrink-0" />
+                        <span className="text-[12px] font-semibold tracking-[-0.01em]">
+                          Over limit {charCount.toLocaleString()} / {MAX_INPUT_CHARS.toLocaleString()}
+                        </span>
+                      </>
+                    ) : showEditToRerun ? (
+                      "Edit input to re-run"
+                    ) : (
+                      "Explain"
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={reset}
+                    className={cn(
+                      "p-3 rounded-full border active:scale-[0.98] transition-all cursor-pointer",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                      "shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_60px_rgba(0,0,0,0.22)]",
+                      theme === "dark"
+                        ? "bg-white/10 text-zinc-200 border-white/10"
+                        : "bg-zinc-100/80 text-zinc-800 border-zinc-200"
+                    )}
+                    title="Reset"
+                    aria-label="Reset"
+                  >
+                    <RotateCcw size={20} />
+                  </button>
+                </div>
+
+                {selectedFile && (
+                  <div className="mt-2 px-2">
+                    <FileChip file={selectedFile} theme={theme} onRemove={removeFile} />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
+
         </div>
 
         {/* Results */}
@@ -1931,12 +2930,16 @@ export default function HomePage() {
                       <h3 className="text-[22px] md:text-2xl font-black tracking-[-0.02em]">Synthesis</h3>
                     </div>
 
-                    <ElegantPill level={evidence.level} />
+                    <ElegantPill level={evidence.level} lang={result.lang} />
                   </div>
 
                   <DetectedSheet meta={detectedSheetMeta} theme={theme} />
                   <WarningsPanel warnings={result.warnings} theme={theme} />
-                  <ElegantAnalysis text={analysisText} theme={theme} />
+                  <ElegantAnalysis
+  text={analysisText}
+  theme={theme}
+  lang={result.lang}
+/>
 
                   <div className="mt-12 flex flex-wrap items-center gap-3 print:hidden">
                     <button
@@ -1983,20 +2986,7 @@ export default function HomePage() {
 
                     <div className="flex-1" />
 
-                    <button
-                      type="button"
-                      onClick={openPrivacy}
-                      className={cn(
-                        "inline-flex items-center gap-2 px-5 py-3 rounded-2xl",
-                        "text-[13px] font-semibold tracking-[-0.01em]",
-                        "transition-all duration-200 active:scale-[0.99]",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                        theme === "dark" ? "text-white/70 hover:bg-white/5" : "text-zinc-700 hover:bg-zinc-100"
-                      )}
-                    >
-                      <Shield size={16} className="opacity-80" />
-                      <span>Privacy</span>
-                    </button>
+
                   </div>
                 </div>
               ) : (

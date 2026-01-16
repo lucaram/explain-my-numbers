@@ -1,90 +1,90 @@
 // src/app/api/billing/create-checkout-session/route.ts
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import Stripe from "stripe";
-import { getEntitlementFromRequest } from "@/lib/entitlements";
 
 export const runtime = "nodejs";
 
-const PRICE_ID = process.env.STRIPE_PRICE_ID_MONTHLY || "";
-const APP_ORIGINS = process.env.APP_ORIGINS || "";
+function json(data: any, status = 200) {
+  return NextResponse.json(data, { status });
+}
 
-// Helper: instantiate Stripe only at request-time (prevents build-time crashes)
 function getStripe() {
   const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) {
-    throw new Error("Missing STRIPE_SECRET_KEY.");
-  }
+  if (!key) throw new Error("Missing STRIPE_SECRET_KEY.");
+  // ✅ No apiVersion override
   return new Stripe(key);
 }
 
-// Helper: pick one origin string (supports comma-separated APP_ORIGINS too)
-function pickPrimaryOrigin(origins: string) {
-  // If you ever store multiple, we use the first as canonical redirect base.
-  return origins
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)[0];
+async function readSession(): Promise<{ email: string; customerId: string | null } | null> {
+  const name = process.env.SESSION_COOKIE_NAME || "emn_session";
+
+  // ✅ Next.js (your version): cookies() returns Promise<ReadonlyRequestCookies>
+  const jar = await cookies();
+  const c = jar.get(name)?.value;
+
+  if (!c) return null;
+
+  try {
+    const raw = Buffer.from(c, "base64url").toString("utf8");
+    const j = JSON.parse(raw) as any;
+    const email = String(j?.email ?? "").trim().toLowerCase();
+    const customerId = j?.customerId ? String(j.customerId) : null;
+    if (!email || !email.includes("@")) return null;
+    return { email, customerId };
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(req: Request) {
   try {
-    // --- config checks (fail fast, but only at runtime) ---
-    if (!PRICE_ID) {
-      return NextResponse.json({ ok: false, error: "Missing STRIPE_PRICE_ID_MONTHLY." }, { status: 500 });
-    }
-    if (!APP_ORIGINS) {
-      return NextResponse.json({ ok: false, error: "Missing APP_ORIGINS." }, { status: 500 });
-    }
+    const stripe = getStripe();
+    const sess = await readSession();
 
-    const origin = pickPrimaryOrigin(APP_ORIGINS);
-    if (!origin) {
-      return NextResponse.json({ ok: false, error: "APP_ORIGINS is empty." }, { status: 500 });
-    }
-
-    // Must have a valid session cookie to upgrade.
-    const ent = await getEntitlementFromRequest(req);
-
-    if (!ent.stripeCustomerId) {
-      return NextResponse.json(
-        { ok: false, error: "You must verify your magic link first.", error_code: "NO_SESSION" },
-        { status: 401 }
+    if (!sess) {
+      return json(
+        {
+          ok: false,
+          error: "You must verify your magic link first.",
+          error_code: "NO_SESSION",
+        },
+        401
       );
     }
 
-    // If already active subscription, no need to checkout.
-    if (ent.reason === "subscription_active") {
-      return NextResponse.json({ ok: true, alreadySubscribed: true });
+    const priceId = process.env.STRIPE_PRICE_ID;
+    if (!priceId) throw new Error("Missing STRIPE_PRICE_ID.");
+
+    // Ensure we have a customer id (fallback: lookup/create by email)
+    let customerId = sess.customerId;
+    if (!customerId) {
+      const existing = await stripe.customers.list({ email: sess.email, limit: 1 });
+      customerId =
+        existing.data[0]?.id || (await stripe.customers.create({ email: sess.email })).id;
     }
 
-    const stripe = getStripe();
+    const origin = new URL(req.url).origin.replace(/\/+$/, "");
+    const successUrl = process.env.STRIPE_SUCCESS_URL?.trim() || `${origin}/?billing=success`;
+    const cancelUrl = process.env.STRIPE_CANCEL_URL?.trim() || `${origin}/?billing=cancel`;
 
-    // Create Stripe Checkout for subscription
-    const session = await stripe.checkout.sessions.create({
+    const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
-      customer: ent.stripeCustomerId,
-      line_items: [{ price: PRICE_ID, quantity: 1 }],
-      allow_promotion_codes: false,
-      success_url: `${origin}/?billing=success`,
-      cancel_url: `${origin}/?billing=cancel`,
-      subscription_data: {
-        metadata: {
-          product: "explain_my_numbers",
-          phase: "paid_monthly",
-        },
-      },
-      metadata: {
-        product: "explain_my_numbers",
-        kind: "upgrade_checkout",
-      },
+      customer: customerId,
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      allow_promotion_codes: true,
     });
 
-    return NextResponse.json({ ok: true, url: session.url });
-  } catch (err: any) {
-    // Keep logs server-side; don’t leak internals to client
-    console.error("create-checkout-session error:", err?.message || err);
-    return NextResponse.json(
-      { ok: false, error: "Could not start checkout. Please try again.", error_code: "CHECKOUT_FAILED" },
-      { status: 500 }
+    if (!checkout.url) throw new Error("Stripe session created but missing URL.");
+
+    return json({ ok: true, url: checkout.url });
+  } catch (e: any) {
+    console.error("[create-checkout-session]", e);
+    return json(
+      { ok: false, error: e?.message ?? "Stripe error.", error_code: "STRIPE_ERROR" },
+      500
     );
   }
 }
