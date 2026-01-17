@@ -2524,43 +2524,40 @@ const chip = buildTrialChip(billing);
       )}
     />
 
-   <span className="relative z-10 flex items-center justify-center gap-3">
-  {/* small dot */}
-  <span
-    className={cn(
-      "h-1.5 w-1.5 rounded-full shrink-0",
-      theme === "dark" ? "bg-indigo-300/80" : "bg-indigo-600/70"
-    )}
-    aria-hidden="true"
-  />
-
-  {/* ✅ Mobile: one line | Desktop: your 2-line layout */}
-  <span className="flex items-center sm:flex-col sm:items-start leading-tight gap-0 sm:gap-0">
-    <span className="text-[15px] font-semibold tracking-[-0.01em] whitespace-nowrap">
-      Continue free trial
-    </span>
-
-    {/* ✅ Keep the subline on >= sm so mobile stays clean */}
+<span className="relative z-10 flex flex-col items-center leading-tight">
+  {/* Title row (dot + title + arrow aligned on the same line) */}
+  <span className="flex items-center justify-center gap-3">
     <span
       className={cn(
-        "hidden sm:block mt-0.5 text-[11px] font-medium",
-        theme === "dark" ? "text-white/60" : "text-zinc-500"
+        "h-1.5 w-1.5 rounded-full shrink-0",
+        theme === "dark" ? "bg-indigo-300/80" : "bg-indigo-600/70"
       )}
-    >
-      3-day trial · No card
+      aria-hidden="true"
+    />
+    <span className="text-[15px] font-semibold tracking-[-0.01em]">
+      Continue free trial
     </span>
+    <ArrowRight
+      size={18}
+      className={cn(
+        "opacity-70 group-hover:opacity-90 transition-opacity",
+        theme === "dark" ? "text-white/70" : "text-zinc-600"
+      )}
+      aria-hidden="true"
+    />
   </span>
 
+  {/* Subtitle row (centered, like Subscribe) */}
   <span
     className={cn(
-      "ml-2 opacity-70 group-hover:opacity-90 transition-opacity",
+      "mt-0.5 text-[11px] font-medium opacity-70 text-center",
       theme === "dark" ? "text-white/70" : "text-zinc-600"
     )}
-    aria-hidden="true"
   >
-    →
+    3-day trial · No card
   </span>
 </span>
+
 
   </button>
 
