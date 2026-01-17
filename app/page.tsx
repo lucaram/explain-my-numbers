@@ -2546,14 +2546,14 @@ const chip = buildTrialChip(billing);
   </span>
 
   {/* Subtitle row (centered, like Subscribe) */}
-  <span
-    className={cn(
-      "mt-0.5 text-[11px] font-medium opacity-70 text-center",
-      theme === "dark" ? "text-white/70" : "text-zinc-600"
-    )}
-  >
-    3-day trial · No card
-  </span>
+<span
+  className={cn(
+    "mt-0.5 text-xs sm:text-[11px] font-medium opacity-70 text-center leading-tight",
+    theme === "dark" ? "text-white/70" : "text-zinc-600"
+  )}
+>
+  3-day trial · No card
+</span>
 </span>
 
 
@@ -2597,9 +2597,15 @@ const chip = buildTrialChip(billing);
             <span>Subscribe £4.99/mo</span>
             <ArrowRight size={18} className="opacity-85" />
           </span>
-          <span className="mt-0.5 text-[11px] font-medium opacity-70">
-            Full access · Fair use
-          </span>
+<span
+  className={cn(
+    "mt-0.5 text-xs sm:text-[11px] font-medium opacity-70 text-center leading-tight",
+    theme === "dark" ? "text-white/70" : "text-zinc-600"
+  )}
+>
+  Full access · Fair use
+</span>
+
         </span>
       )}
     </span>
