@@ -2527,15 +2527,9 @@ const chip = buildTrialChip(billing);
 <span className="relative z-10 flex flex-col items-center leading-tight">
   {/* Title row (dot + title + arrow aligned on the same line) */}
   <span className="flex items-center justify-center gap-3">
-    <span
-      className={cn(
-        "h-1.5 w-1.5 rounded-full shrink-0",
-        theme === "dark" ? "bg-indigo-300/80" : "bg-indigo-600/70"
-      )}
-      aria-hidden="true"
-    />
+
     <span className="text-[15px] font-semibold tracking-[-0.01em]">
-      Continue free trial
+      Continue our free trial
     </span>
     <ArrowRight
       size={18}
