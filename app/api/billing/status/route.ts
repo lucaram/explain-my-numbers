@@ -1,3 +1,4 @@
+// src/app/api/billing/status/route.ts
 import { NextResponse } from "next/server";
 import { getEntitlementFromRequest } from "@/lib/entitlements";
 import { Redis } from "@upstash/redis";
@@ -50,10 +51,29 @@ export async function GET(req: Request) {
 
   const ent = await getEntitlementFromRequest(req);
 
+  // ✅ Frontend expects possible: "subscription_cancelled"
+  // We only map to that if ent exposes cancelAtPeriodEnd=true.
+  // (If entitlements.ts doesn't include it yet, this remains undefined and we won't map.)
+  const cancelAtPeriodEnd =
+    typeof (ent as any)?.cancelAtPeriodEnd === "boolean" ? (ent as any).cancelAtPeriodEnd : null;
+
+  const currentPeriodEnd =
+    typeof (ent as any)?.currentPeriodEnd === "number" ? (ent as any).currentPeriodEnd : null;
+
+  const mappedReason =
+    ent.reason === "subscription_active" && cancelAtPeriodEnd === true
+      ? "subscription_cancelled"
+      : ent.reason;
+
   return NextResponse.json({
     ok: true,
     canExplain: ent.canExplain,
-    reason: ent.reason,
+    reason: mappedReason,
     trialEndsAt: ent.trialEndsAt ?? null,
+
+    // ✅ extra optional fields (harmless, helps UI later)
+    cancelAtPeriodEnd,
+    currentPeriodEnd,
+    activeSubscriptionId: (ent as any)?.activeSubscriptionId ?? null,
   });
 }

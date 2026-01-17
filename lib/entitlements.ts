@@ -11,12 +11,17 @@ export type EntitlementResult = {
     | "no_customer"
     | "trial_active"
     | "subscription_active"
+    | "subscription_cancelled" // ✅ active but cancels at period end
     | "no_entitlement"
     | "stripe_error";
   stripeCustomerId?: string;
   email?: string;
   trialEndsAt?: number | null;
   activeSubscriptionId?: string | null;
+
+  // ✅ added for portal/subscription UI
+  cancelAtPeriodEnd?: boolean | null;
+  currentPeriodEnd?: number | null;
 };
 
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "emn_session";
@@ -38,9 +43,8 @@ function getMagicSecret() {
 }
 
 /** --------------------------
- * Base64url helpers
+ * Stripe helper: current period end
  * -------------------------- */
-
 function getCurrentPeriodEndFromSubscription(sub: Stripe.Subscription): number | null {
   const direct = (sub as unknown as { current_period_end?: unknown }).current_period_end;
   if (typeof direct === "number") return direct;
@@ -53,7 +57,9 @@ function getCurrentPeriodEndFromSubscription(sub: Stripe.Subscription): number |
   return null;
 }
 
-
+/** --------------------------
+ * Base64url helpers
+ * -------------------------- */
 function base64urlToBuffer(s: string) {
   const pad = 4 - (s.length % 4 || 4);
   const b64 = (s + "=".repeat(pad)).replace(/-/g, "+").replace(/_/g, "/");
@@ -62,17 +68,12 @@ function base64urlToBuffer(s: string) {
 
 function base64url(input: Buffer | string) {
   const b = Buffer.isBuffer(input) ? input : Buffer.from(input);
-  return b
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
+  return b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 /** --------------------------
  * Cookie helpers
  * -------------------------- */
-
 function parseCookies(header: string | null) {
   const out: Record<string, string> = {};
   if (!header) return out;
@@ -91,7 +92,6 @@ function parseCookies(header: string | null) {
 /** --------------------------
  * Session verification (signed cookie: body.sig)
  * -------------------------- */
-
 type SessionPayload = {
   v: number;
   email: string;
@@ -134,7 +134,6 @@ function verifySignedValue(value: string, magicSecret: string): SessionPayload |
  * Redis snapshot cache (written by webhook)
  * Key matches: emn:ent:cus:<customerId>
  * -------------------------- */
-
 type EntitlementSnapshot = {
   customerId: string;
   subscriptionId: string | null;
@@ -158,7 +157,6 @@ async function readSnapshot(customerId: string): Promise<EntitlementSnapshot | n
   return snap ?? null;
 }
 
-// Optional: if we had to fall back to Stripe, we can write a snapshot to speed up next request.
 async function writeSnapshot(customerId: string, snap: EntitlementSnapshot) {
   const redis = getRedis();
   await redis.set(keyForCustomer(customerId), snap, { ex: 60 * 60 * 24 * 14 }); // 14 days
@@ -167,12 +165,7 @@ async function writeSnapshot(customerId: string, snap: EntitlementSnapshot) {
 /** --------------------------
  * Entitlement decision from snapshot
  * -------------------------- */
-
-function entitlementFromSnapshot(
-  snap: EntitlementSnapshot,
-  email: string,
-  nowSec: number
-): EntitlementResult {
+function entitlementFromSnapshot(snap: EntitlementSnapshot, email: string, nowSec: number): EntitlementResult {
   // Trialing with trial end in the future -> allow
   if (snap.status === "trialing" && typeof snap.trialEndsAt === "number" && snap.trialEndsAt > nowSec) {
     return {
@@ -182,22 +175,45 @@ function entitlementFromSnapshot(
       email,
       trialEndsAt: snap.trialEndsAt ?? null,
       activeSubscriptionId: snap.subscriptionId ?? null,
+      cancelAtPeriodEnd: snap.cancelAtPeriodEnd ?? null,
+      currentPeriodEnd: snap.currentPeriodEnd ?? null,
     };
   }
 
-  // Active -> allow
+  // Active -> allow (but distinguish if cancelling)
   if (snap.status === "active") {
+    const cancelling = snap.cancelAtPeriodEnd === true;
     return {
       canExplain: true,
-      reason: "subscription_active",
+      reason: cancelling ? "subscription_cancelled" : "subscription_active",
       stripeCustomerId: snap.customerId,
       email,
       trialEndsAt: snap.trialEndsAt ?? null,
       activeSubscriptionId: snap.subscriptionId ?? null,
+      cancelAtPeriodEnd: snap.cancelAtPeriodEnd ?? null,
+      currentPeriodEnd: snap.currentPeriodEnd ?? null,
     };
   }
 
-  // Anything else -> no entitlement (or unknown -> fallback to Stripe in caller)
+  // Optional: Past due but still within current paid period -> allow (less disruptive)
+  if (
+    snap.status === "past_due" &&
+    typeof snap.currentPeriodEnd === "number" &&
+    snap.currentPeriodEnd > nowSec
+  ) {
+    const cancelling = snap.cancelAtPeriodEnd === true;
+    return {
+      canExplain: true,
+      reason: cancelling ? "subscription_cancelled" : "subscription_active",
+      stripeCustomerId: snap.customerId,
+      email,
+      trialEndsAt: snap.trialEndsAt ?? null,
+      activeSubscriptionId: snap.subscriptionId ?? null,
+      cancelAtPeriodEnd: snap.cancelAtPeriodEnd ?? null,
+      currentPeriodEnd: snap.currentPeriodEnd ?? null,
+    };
+  }
+
   return {
     canExplain: false,
     reason: "no_entitlement",
@@ -205,20 +221,117 @@ function entitlementFromSnapshot(
     email,
     trialEndsAt: snap.trialEndsAt ?? null,
     activeSubscriptionId: snap.subscriptionId ?? null,
+    cancelAtPeriodEnd: snap.cancelAtPeriodEnd ?? null,
+    currentPeriodEnd: snap.currentPeriodEnd ?? null,
+  };
+}
+
+/** --------------------------
+ * Stripe-based entitlement (single source of truth)
+ * IMPORTANT: Prefer ACTIVE over TRIALING if both exist.
+ * -------------------------- */
+function entitlementFromStripeList(
+  customerId: string,
+  email: string,
+  nowSec: number,
+  subs: Stripe.ApiList<Stripe.Subscription>
+): { ent: EntitlementResult; snap: EntitlementSnapshot } {
+  const active = subs.data.find((s) => s.status === "active");
+
+  const pastDue = subs.data.find((s) => {
+    if (s.status !== "past_due") return false;
+    const cpe = getCurrentPeriodEndFromSubscription(s);
+    return typeof cpe === "number" && cpe > nowSec;
+  });
+
+  const trialing = subs.data.find(
+    (s) => s.status === "trialing" && typeof s.trial_end === "number" && s.trial_end > nowSec
+  );
+
+  // ✅ prefer active -> past_due -> trialing
+  const chosen = active ?? pastDue ?? trialing ?? null;
+
+  const snap: EntitlementSnapshot = {
+    customerId,
+    subscriptionId: chosen?.id ?? null,
+    status: (chosen?.status as any) ?? "unknown",
+    trialEndsAt: typeof chosen?.trial_end === "number" ? chosen.trial_end : null,
+    currentPeriodEnd: chosen ? getCurrentPeriodEndFromSubscription(chosen) : null,
+    cancelAt: typeof chosen?.cancel_at === "number" ? chosen.cancel_at : null,
+    cancelAtPeriodEnd: typeof chosen?.cancel_at_period_end === "boolean" ? chosen.cancel_at_period_end : null,
+    lastInvoiceStatus: "unknown",
+    lastPaymentFailed: false,
+    updatedAt: nowSec,
+  };
+
+  if (active) {
+    const cancelling = typeof active.cancel_at_period_end === "boolean" ? active.cancel_at_period_end : false;
+    return {
+      ent: {
+        canExplain: true,
+        reason: cancelling ? "subscription_cancelled" : "subscription_active",
+        stripeCustomerId: customerId,
+        email,
+        trialEndsAt: active.trial_end ?? null,
+        activeSubscriptionId: active.id,
+        cancelAtPeriodEnd: typeof active.cancel_at_period_end === "boolean" ? active.cancel_at_period_end : null,
+        currentPeriodEnd: getCurrentPeriodEndFromSubscription(active),
+      },
+      snap,
+    };
+  }
+
+  if (pastDue) {
+    const cancelling = typeof pastDue.cancel_at_period_end === "boolean" ? pastDue.cancel_at_period_end : false;
+    return {
+      ent: {
+        canExplain: true,
+        reason: cancelling ? "subscription_cancelled" : "subscription_active",
+        stripeCustomerId: customerId,
+        email,
+        trialEndsAt: pastDue.trial_end ?? null,
+        activeSubscriptionId: pastDue.id,
+        cancelAtPeriodEnd: typeof pastDue.cancel_at_period_end === "boolean" ? pastDue.cancel_at_period_end : null,
+        currentPeriodEnd: getCurrentPeriodEndFromSubscription(pastDue),
+      },
+      snap,
+    };
+  }
+
+  if (trialing) {
+    return {
+      ent: {
+        canExplain: true,
+        reason: "trial_active",
+        stripeCustomerId: customerId,
+        email,
+        trialEndsAt: trialing.trial_end ?? null,
+        activeSubscriptionId: trialing.id,
+        cancelAtPeriodEnd: typeof trialing.cancel_at_period_end === "boolean" ? trialing.cancel_at_period_end : null,
+        currentPeriodEnd: getCurrentPeriodEndFromSubscription(trialing),
+      },
+      snap,
+    };
+  }
+
+  return {
+    ent: {
+      canExplain: false,
+      reason: "no_entitlement",
+      stripeCustomerId: customerId,
+      email,
+      trialEndsAt: null,
+      activeSubscriptionId: null,
+      cancelAtPeriodEnd: null,
+      currentPeriodEnd: null,
+    },
+    snap,
   };
 }
 
 /** --------------------------
  * Main API
  * -------------------------- */
-
-/**
- * Reads emn_session from Cookie header (server-side), verifies signature,
- * then checks (in this order):
- * 1) Session-based trialEndsAt (no-card trial hint, if present)
- * 2) Redis snapshot (fast path, written by webhook)
- * 3) Stripe fallback (slow path) + writes snapshot for next time
- */
 export async function getEntitlementFromRequest(req: Request): Promise<EntitlementResult> {
   try {
     const magicSecret = getMagicSecret();
@@ -236,96 +349,65 @@ export async function getEntitlementFromRequest(req: Request): Promise<Entitleme
     const email = String(session.email ?? "").trim().toLowerCase();
     const nowSec = Math.floor(Date.now() / 1000);
 
-    // 1) Session-based trial (no-card trial) — fast, if present & in the future
+    // 1) Session-based trial hint:
+    // ✅ If the cookie says trial is active, we still must ensure Stripe does NOT already show active.
     if (typeof session.trialEndsAt === "number" && session.trialEndsAt > nowSec) {
-      return {
-        canExplain: true,
-        reason: "trial_active",
-        stripeCustomerId,
-        email,
-        trialEndsAt: session.trialEndsAt,
-        activeSubscriptionId: session.trialSubscriptionId ?? null,
-      };
+      // try snapshot first
+      const snap = await readSnapshot(stripeCustomerId);
+
+      // If snapshot already shows a real subscription state (active/past_due), do NOT return trial.
+      if (snap && snap.status !== "unknown") {
+        if (snap.status === "active") {
+          // fall through
+        } else if (
+          snap.status === "past_due" &&
+          typeof snap.currentPeriodEnd === "number" &&
+          snap.currentPeriodEnd > nowSec
+        ) {
+          // fall through
+        } else if (snap.status === "trialing") {
+          return entitlementFromSnapshot(snap, email, nowSec);
+        } else {
+          // fall through
+        }
+      } else {
+        // Snapshot missing/unknown → do ONE Stripe check (deterministic)
+        const stripe = getStripe();
+        const subs = await stripe.subscriptions.list({
+          customer: stripeCustomerId,
+          status: "all",
+          limit: 20,
+        });
+
+        const { ent, snap: snapToWrite } = entitlementFromStripeList(stripeCustomerId, email, nowSec, subs);
+        writeSnapshot(stripeCustomerId, snapToWrite).catch(() => null);
+
+        // If Stripe says trial, return it. If Stripe says active, we fall through (and will return active below too).
+        if (ent.reason === "trial_active") return ent;
+      }
+
+      // If we reach here, session trial hint exists but Stripe likely has active/past_due.
+      // fall through to normal snapshot/stripe logic below.
     }
 
     // 2) Redis snapshot fast-path (written by webhook)
     const snap = await readSnapshot(stripeCustomerId);
-    if (snap) {
-      // If snapshot says "unknown", fall back to Stripe once.
-      if (snap.status !== "unknown") {
-        return entitlementFromSnapshot(snap, email, nowSec);
-      }
+    if (snap && snap.status !== "unknown") {
+      return entitlementFromSnapshot(snap, email, nowSec);
     }
 
-    // 3) Stripe fallback (slow path)
+    // 3) Stripe fallback (authoritative)
     const stripe = getStripe();
-
-    // Find whether there exists a trialing (with future trial_end) or active subscription.
     const subs = await stripe.subscriptions.list({
       customer: stripeCustomerId,
       status: "all",
       limit: 20,
     });
 
-    const trialing = subs.data.find(
-      (s) => s.status === "trialing" && typeof s.trial_end === "number" && s.trial_end > nowSec
-    );
-    const active = subs.data.find((s) => s.status === "active");
-
-    const now = nowSec;
-
-    // Write a snapshot so next call is fast (even if webhook is delayed/missed)
-    const chosen = trialing ?? active ?? null;
-
-    const snapToWrite: EntitlementSnapshot = {
-      customerId: stripeCustomerId,
-      subscriptionId: chosen?.id ?? null,
-      status: chosen?.status ?? "unknown",
-      trialEndsAt: typeof chosen?.trial_end === "number" ? chosen.trial_end : null,
-      // These fields are “best effort” here; webhook is still your main snapshot source.
-      currentPeriodEnd: chosen ? getCurrentPeriodEndFromSubscription(chosen) : null,
-
-      cancelAt: typeof chosen?.cancel_at === "number" ? chosen.cancel_at : null,
-      cancelAtPeriodEnd:
-        typeof chosen?.cancel_at_period_end === "boolean" ? chosen.cancel_at_period_end : null,
-      lastInvoiceStatus: "unknown",
-      lastPaymentFailed: false,
-      updatedAt: now,
-    };
-
-    // Don’t let snapshot writing failure break entitlement checks
+    const { ent, snap: snapToWrite } = entitlementFromStripeList(stripeCustomerId, email, nowSec, subs);
     writeSnapshot(stripeCustomerId, snapToWrite).catch(() => null);
 
-    if (trialing) {
-      return {
-        canExplain: true,
-        reason: "trial_active",
-        stripeCustomerId,
-        email,
-        trialEndsAt: trialing.trial_end ?? null,
-        activeSubscriptionId: trialing.id,
-      };
-    }
-
-    if (active) {
-      return {
-        canExplain: true,
-        reason: "subscription_active",
-        stripeCustomerId,
-        email,
-        trialEndsAt: active.trial_end ?? null,
-        activeSubscriptionId: active.id,
-      };
-    }
-
-    return {
-      canExplain: false,
-      reason: "no_entitlement",
-      stripeCustomerId,
-      email,
-      trialEndsAt: null,
-      activeSubscriptionId: null,
-    };
+    return ent;
   } catch {
     return { canExplain: false, reason: "stripe_error" };
   }

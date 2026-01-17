@@ -164,44 +164,88 @@ export async function POST(req: Request) {
     switch (event.type) {
       // 1) Checkout finished (your paid upgrade)
       case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
+  const session = event.data.object as Stripe.Checkout.Session;
 
-        const customerId = getCustomerIdFromMaybeExpanded(session.customer);
-        const subscriptionId = getSubscriptionIdFromCheckout(session);
+  const customerId = getCustomerIdFromMaybeExpanded(session.customer);
+  const subscriptionId = getSubscriptionIdFromCheckout(session);
 
-        if (!customerId) return jsonOk();
+  if (!customerId) return jsonOk();
 
-        // Fetch subscription for authoritative fields (status, trial_end, etc.)
-        let sub: Stripe.Subscription | null = null;
-        if (subscriptionId) {
-          try {
-            sub = await stripe.subscriptions.retrieve(subscriptionId, {
-              expand: ["items.data.price"],
-            });
-          } catch {
-            sub = null;
-          }
-        }
+  // Fetch the purchased subscription (authoritative fields)
+  let purchasedSub: Stripe.Subscription | null = null;
+  if (subscriptionId) {
+    try {
+      purchasedSub = await stripe.subscriptions.retrieve(subscriptionId, {
+        expand: ["items.data.price"],
+      });
+    } catch {
+      purchasedSub = null;
+    }
+  }
 
-        const now = Math.floor(Date.now() / 1000);
+  const now = Math.floor(Date.now() / 1000);
 
-        const snap: EntitlementSnapshot = {
-          customerId,
-          subscriptionId: sub?.id ?? subscriptionId ?? null,
-          status: sub?.status ?? "unknown",
-          trialEndsAt: typeof sub?.trial_end === "number" ? sub.trial_end : null,
-          currentPeriodEnd: sub ? getCurrentPeriodEndFromSubscription(sub) : null,
-          cancelAt: typeof sub?.cancel_at === "number" ? sub.cancel_at : null,
-          cancelAtPeriodEnd:
-            typeof sub?.cancel_at_period_end === "boolean" ? sub.cancel_at_period_end : null,
-          lastInvoiceStatus: "unknown",
-          lastPaymentFailed: false,
-          updatedAt: now,
-        };
+  // ✅ 1) Write snapshot for the purchased subscription
+  const snap: EntitlementSnapshot = {
+    customerId,
+    subscriptionId: purchasedSub?.id ?? subscriptionId ?? null,
+    status: purchasedSub?.status ?? "unknown",
+    trialEndsAt: typeof purchasedSub?.trial_end === "number" ? purchasedSub.trial_end : null,
+    currentPeriodEnd: purchasedSub ? getCurrentPeriodEndFromSubscription(purchasedSub) : null,
+    cancelAt: typeof purchasedSub?.cancel_at === "number" ? purchasedSub.cancel_at : null,
+    cancelAtPeriodEnd:
+      typeof purchasedSub?.cancel_at_period_end === "boolean" ? purchasedSub.cancel_at_period_end : null,
+    lastInvoiceStatus: "unknown",
+    lastPaymentFailed: false,
+    updatedAt: now,
+  };
 
-        await writeSnapshot(customerId, snap);
-        return jsonOk();
+  await writeSnapshot(customerId, snap);
+
+  // ✅ 2) Cleanup: cancel leftover "trial_no_card" subscriptions for the same customer
+  // This prevents Stripe showing both "trialing" + "active" subscriptions.
+  try {
+    const subs = await stripe.subscriptions.list({
+      customer: customerId,
+      status: "all",
+      limit: 50,
+    });
+
+    const purchasedId = purchasedSub?.id ?? subscriptionId ?? null;
+
+    const leftovers = subs.data.filter((s) => {
+      if (!s || typeof s.id !== "string") return false;
+      if (purchasedId && s.id === purchasedId) return false;
+
+      // Only cancel trialing subs
+      if (s.status !== "trialing") return false;
+
+      // ✅ Strict: only cancel the ones created by your trial flow
+      const phase = (s.metadata && typeof s.metadata.phase === "string") ? s.metadata.phase : "";
+      if (phase === "trial_no_card") return true;
+
+      // Optional: also cancel if it looks like your trial pattern
+      // (trialing + cancel_at_period_end true)
+      if (s.cancel_at_period_end === true) return true;
+
+      return false;
+    });
+
+    // Cancel them (best-effort)
+    for (const s of leftovers) {
+      try {
+        await stripe.subscriptions.cancel(s.id);
+      } catch {
+        // ignore individual failures
       }
+    }
+  } catch {
+    // ignore cleanup failures
+  }
+
+  return jsonOk();
+}
+
 
       // 2/3/4) Subscription lifecycle
       case "customer.subscription.created":
@@ -233,31 +277,43 @@ export async function POST(req: Request) {
 
       // 5) Payment failed (dunning / access should eventually be blocked)
       case "invoice.payment_failed": {
-        const inv = event.data.object as Stripe.Invoice;
+  const inv = event.data.object as Stripe.Invoice;
 
-        const customerId = getCustomerIdFromMaybeExpanded(inv.customer);
-        const subscriptionId = getSubscriptionIdFromInvoice(inv);
+  const customerId = getCustomerIdFromMaybeExpanded(inv.customer);
+  const subscriptionId = getSubscriptionIdFromInvoice(inv);
 
-        if (!customerId) return jsonOk();
+  if (!customerId) return jsonOk();
 
-        const now = Math.floor(Date.now() / 1000);
+  let sub: Stripe.Subscription | null = null;
+  if (subscriptionId) {
+    try {
+      sub = await stripe.subscriptions.retrieve(subscriptionId, {
+        expand: ["items.data.price"],
+      });
+    } catch {
+      sub = null;
+    }
+  }
 
-        const snap: EntitlementSnapshot = {
-          customerId,
-          subscriptionId: subscriptionId ?? null,
-          status: "unknown",
-          trialEndsAt: null,
-          currentPeriodEnd: null,
-          cancelAt: null,
-          cancelAtPeriodEnd: null,
-          lastInvoiceStatus: normalizeInvoiceStatus((inv as unknown as { status?: unknown }).status),
-          lastPaymentFailed: true,
-          updatedAt: now,
-        };
+  const now = Math.floor(Date.now() / 1000);
 
-        await writeSnapshot(customerId, snap);
-        return jsonOk();
-      }
+  const snap: EntitlementSnapshot = {
+    customerId,
+    subscriptionId: sub?.id ?? subscriptionId ?? null,
+    status: sub?.status ?? "unknown",
+    trialEndsAt: typeof sub?.trial_end === "number" ? sub.trial_end : null,
+    currentPeriodEnd: sub ? getCurrentPeriodEndFromSubscription(sub) : null,
+    cancelAt: typeof sub?.cancel_at === "number" ? sub.cancel_at : null,
+    cancelAtPeriodEnd: typeof sub?.cancel_at_period_end === "boolean" ? sub.cancel_at_period_end : null,
+    lastInvoiceStatus: normalizeInvoiceStatus((inv as unknown as { status?: unknown }).status),
+    lastPaymentFailed: true,
+    updatedAt: now,
+  };
+
+  await writeSnapshot(customerId, snap);
+  return jsonOk();
+}
+
 
       default:
         // Ignore everything else

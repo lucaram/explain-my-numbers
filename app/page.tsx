@@ -59,10 +59,12 @@ type BillingStatus = {
     | "no_customer"
     | "trial_active"
     | "subscription_active"
-    | "no_entitlement"
+    | "subscription_cancelled" // ✅ cancelled but still in period (still has access)
+    | "no_entitlement"         // ✅ trial ended OR cancelled & expired OR never subscribed
     | "stripe_error";
   trialEndsAt: number | null;
 };
+
 
 
 
@@ -117,25 +119,59 @@ function daysLeftFromTrialEnd(trialEndsAtSec: number) {
 function buildTrialChip(b: BillingStatus | null) {
   if (!b) return null;
 
+  // ✅ "Manage" states:
+  // - subscription_active (subscribed)
+  // - subscription_cancelled (cancelled but still in paid period)
+  // - trial_active (optional: allow user to manage/cancel early)
+const showManage =
+  b.reason === "subscription_active" ||
+  b.reason === "subscription_cancelled";
+
   if (b.reason === "subscription_active") {
-    return { tone: "good" as const, title: "Subscribed", sub: "£4.99/mo active" };
+    return {
+      tone: "good" as const,
+      title: "Subscribed",
+      sub: "£4.99/mo active",
+      cta: "manage" as const,
+    };
   }
 
-  if (b.reason === "trial_active" && typeof b.trialEndsAt === "number") {
-    const d = daysLeftFromTrialEnd(b.trialEndsAt);
-    const dayWord = d === 1 ? "day" : "days";
-    return { tone: "trial" as const, title: "Free trial", sub: `${d} ${dayWord} left` };
+  if (b.reason === "subscription_cancelled") {
+    return {
+      tone: "good" as const,
+      title: "Active",
+      sub: "Cancels at period end",
+      cta: "manage" as const,
+    };
   }
 
-  // Only show “Trial ended” when we *know* they had a trial/sub and now don’t.
+if (b.reason === "trial_active" && typeof b.trialEndsAt === "number") {
+  const d = daysLeftFromTrialEnd(b.trialEndsAt);
+  const dayWord = d === 1 ? "day" : "days";
+  return {
+    tone: "trial" as const,
+    title: "Free trial",
+    sub: `${d} ${dayWord} left`,
+    // ✅ No Manage during trial (avoids Stripe portal “Don’t cancel subscription” confusion)
+  };
+}
+
+
+  // ✅ "Subscribe" states:
+  // - no_entitlement (trial ended, cancelled+expired, or never subscribed)
   if (b.reason === "no_entitlement") {
-    return { tone: "ended" as const, title: "Trial ended", sub: "Subscribe £4.99/mo", cta: "subscribe" as const };
-
+    return {
+      tone: "ended" as const,
+      title: "Access ended",
+      sub: "Subscribe £4.99/mo",
+      cta: "subscribe" as const,
+    };
   }
 
   // No session / unknown → don’t show a chip (keeps UI clean)
   return null;
 }
+
 
 
 function nowMs() {
@@ -2113,6 +2149,29 @@ if (isGate) {
   };
 
 const [subLoading, setSubLoading] = useState(false);
+const [portalLoading, setPortalLoading] = useState(false);
+
+async function goManage() {
+  try {
+    setPortalLoading(true);
+    setExplainBlockReason("");
+
+    const r = await fetch("/api/billing/portal", { method: "POST" });
+    const body = await r.json().catch(() => null);
+
+    if (!r.ok || !body?.ok || !body?.url) {
+      throw new Error(body?.error || "Could not open billing portal.");
+    }
+
+    window.location.href = body.url;
+  } catch (e) {
+    console.error(e);
+    setExplainBlockReason("Could not open billing settings. Please try again.");
+    window.setTimeout(() => setExplainBlockReason(""), 2600);
+  } finally {
+    setPortalLoading(false);
+  }
+}
 
 async function goSubscribe() {
   // ✅ Subscribe button → email → magic link → click → Stripe checkout
@@ -2486,24 +2545,42 @@ const chip = buildTrialChip(billing);
         </span>
       </div>
 
-      {/* SUBSCRIBE CTA (only when ended) */}
-      {chip.cta === "subscribe" && (
-        <button
-          onClick={goSubscribe}
-          disabled={subLoading}
-          className={cn(
-            "inline-flex items-center justify-center rounded-full px-3 py-1.5",
-            "text-[11px] font-semibold tracking-tight",
-            theme === "dark"
-              ? "bg-white/10 hover:bg-white/15 text-white border border-white/10"
-              : "bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-900/10",
-            "transition-transform hover:scale-[1.04] active:scale-[0.96]",
-            "disabled:opacity-60 disabled:cursor-not-allowed"
-          )}
-        >
-          {subLoading ? "Redirecting…" : "Subscribe"}
-        </button>
-      )}
+     {/* CTA: Subscribe OR Manage */}
+{chip.cta === "subscribe" ? (
+  <button
+    onClick={goSubscribe}
+    disabled={subLoading}
+    className={cn(
+      "inline-flex items-center justify-center rounded-full px-3 py-1.5",
+      "text-[11px] font-semibold tracking-tight",
+      theme === "dark"
+        ? "bg-white/10 hover:bg-white/15 text-white border border-white/10"
+        : "bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-900/10",
+      "transition-transform hover:scale-[1.04] active:scale-[0.96]",
+      "disabled:opacity-60 disabled:cursor-not-allowed"
+    )}
+  >
+    {subLoading ? "Redirecting…" : "Subscribe"}
+  </button>
+) : chip.cta === "manage" ? (
+  <button
+    onClick={goManage}
+    disabled={portalLoading}
+    className={cn(
+      "inline-flex items-center justify-center rounded-full px-3 py-1.5",
+      "text-[11px] font-semibold tracking-tight",
+      theme === "dark"
+        ? "bg-white/10 hover:bg-white/15 text-white border border-white/10"
+        : "bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-200",
+      "transition-transform hover:scale-[1.04] active:scale-[0.96]",
+      "disabled:opacity-60 disabled:cursor-not-allowed"
+    )}
+    title="Manage subscription"
+  >
+    {portalLoading ? "Opening…" : "Manage"}
+  </button>
+) : null}
+
     </div>
   )}
 
