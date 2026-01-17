@@ -2530,9 +2530,9 @@ const chip = buildTrialChip(billing);
 
 <span className="relative z-10 flex flex-col items-center leading-tight">
   {/* Title row (dot + title + arrow aligned on the same line) */}
-        <span className="flex flex-col items-center leading-tight">
-          
-          <span className="flex items-center gap-3">
+  <span className="flex items-center justify-center gap-3">
+
+    <span className="text-[15px] font-semibold tracking-[-0.01em]">
       Continue our free trial
     </span>
     <ArrowRight
