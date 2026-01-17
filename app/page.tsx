@@ -2533,7 +2533,7 @@ const chip = buildTrialChip(billing);
   <span className="flex items-center justify-center gap-3">
 
     <span className="text-[15px] font-semibold tracking-[-0.01em]">
-      Continue our free trial
+      Please continue our free trial
     </span>
     <ArrowRight
       size={18}
