@@ -1811,6 +1811,8 @@ function buildWarningsSchemaFree(rawText: string, headers: string[], rows: strin
  * Confidence (deterministic)
  * -------------------------- */
 
+type ConfidenceReasonCode = "STRUCTURE_STRONG" | "STRUCTURE_USABLE" | "STRUCTURE_WEAK";
+
 function computeConfidence(candidate: TableCandidate, profile: ProfileMeta) {
   const score = candidate.score;
   const metrics = profile.detected.metric_cols.length;
@@ -1823,23 +1825,286 @@ function computeConfidence(candidate: TableCandidate, profile: ProfileMeta) {
       ? numericCols.reduce((s, c) => s + (c.missing_pct ?? 0), 0) / numericCols.length
       : 100;
 
+  const score2 = Number(score.toFixed(2));
+
   if (score >= 0.7 && metrics >= 2 && (hasTime || hasGroup) && avgMissing <= 10) {
     return {
       level: "High" as const,
-      note: `table structure is strong (score=${score.toFixed(2)}), with clear metrics and low missingness.`,
+      score: score2,
+      reason_code: "STRUCTURE_STRONG" as const satisfies ConfidenceReasonCode,
     };
   }
+
   if (score >= 0.45 && metrics >= 1 && avgMissing <= 25) {
     return {
       level: "Medium" as const,
-      note: `structure/typing is usable (score=${score.toFixed(2)}), but some fields are ambiguous or partially missing.`,
+      score: score2,
+      reason_code: "STRUCTURE_USABLE" as const satisfies ConfidenceReasonCode,
     };
   }
+
   return {
     level: "Low" as const,
-    note: `structure is weak or ambiguous (score=${score.toFixed(2)}); conclusions are descriptive and conservative.`,
+    score: score2,
+    reason_code: "STRUCTURE_WEAK" as const satisfies ConfidenceReasonCode,
   };
 }
+
+function localizeConfidenceNote(lang: string, code: ConfidenceReasonCode, score: number) {
+  const L = (lang || "en").toLowerCase();
+
+  const T: Record<string, Record<ConfidenceReasonCode, (s: number) => string>> = {
+    en: {
+      STRUCTURE_STRONG: (s) => `Table structure is strong (score=${Math.round(s * 100)}%), with clear metrics and low missingness.`,
+      STRUCTURE_USABLE: (s) => `Structure/typing is usable (score=${Math.round(s * 100)}%), but some fields are ambiguous or partially missing.`,
+      STRUCTURE_WEAK: (s) => `Structure is weak or ambiguous (score=${Math.round(s * 100)}%); conclusions are descriptive and conservative.`,
+    },
+    it: {
+      STRUCTURE_STRONG: (s) =>
+        `La struttura della tabella è solida (punteggio=${Math.round(s * 100)}%), con metriche chiare e pochi valori mancanti.`,
+      STRUCTURE_USABLE: (s) =>
+        `Struttura/tipizzazione utilizzabili (punteggio=${Math.round(s * 100)}%), ma alcuni campi sono ambigui o parzialmente mancanti.`,
+      STRUCTURE_WEAK: (s) =>
+        `La struttura è debole o ambigua (punteggio=${Math.round(s * 100)}%); le conclusioni restano descrittive e prudenti.`,
+    },
+    fr: {
+      STRUCTURE_STRONG: (s) =>
+        `La structure du tableau est solide (score=${Math.round(s * 100)}%), avec des métriques claires et peu de valeurs manquantes.`,
+      STRUCTURE_USABLE: (s) =>
+        `Structure/typage utilisables (score=${Math.round(s * 100)}%), mais certains champs sont ambigus ou partiellement manquants.`,
+      STRUCTURE_WEAK: (s) =>
+        `La structure est faible ou ambiguë (score=${Math.round(s * 100)}%) ; les conclusions restent descriptives et prudentes.`,
+    },
+    es: {
+      STRUCTURE_STRONG: (s) =>
+        `La estructura de la tabla es sólida (puntuación=${Math.round(s * 100)}%), con métricas claras y pocos valores faltantes.`,
+      STRUCTURE_USABLE: (s) =>
+        `Estructura/tipado utilizables (puntuación=${Math.round(s * 100)}%), pero algunos campos son ambiguos o faltan parcialmente.`,
+      STRUCTURE_WEAK: (s) =>
+        `La estructura es débil o ambigua (puntuación=${Math.round(s * 100)}%); las conclusiones son descriptivas y prudentes.`,
+    },
+    de: {
+      STRUCTURE_STRONG: (s) =>
+        `Die Tabellenstruktur ist stark (Score=${Math.round(s * 100)}%), mit klaren Kennzahlen und wenig fehlenden Werten.`,
+      STRUCTURE_USABLE: (s) =>
+        `Struktur/Typisierung ist nutzbar (Score=${Math.round(s * 100)}%), aber einige Felder sind mehrdeutig oder teilweise fehlend.`,
+      STRUCTURE_WEAK: (s) =>
+        `Die Struktur ist schwach oder mehrdeutig (Score=${Math.round(s * 100)}%); die Schlussfolgerungen bleiben beschreibend und vorsichtig.`,
+    },
+    pt: {
+      STRUCTURE_STRONG: (s) =>
+        `A estrutura da tabela é forte (pontuação=${Math.round(s * 100)}%), com métricas claras e pouca ausência de dados.`,
+      STRUCTURE_USABLE: (s) =>
+        `Estrutura/tipagem utilizáveis (pontuação=${Math.round(s * 100)}%), mas alguns campos são ambíguos ou parcialmente ausentes.`,
+      STRUCTURE_WEAK: (s) =>
+        `A estrutura é fraca ou ambígua (pontuação=${Math.round(s * 100)}%); as conclusões são descritivas e cautelosas.`,
+    },
+    nl: {
+      STRUCTURE_STRONG: (s) =>
+        `De tabelstructuur is sterk (score=${Math.round(s * 100)}%), met duidelijke metrics en weinig ontbrekende waarden.`,
+      STRUCTURE_USABLE: (s) =>
+        `Structuur/typering is bruikbaar (score=${Math.round(s * 100)}%), maar sommige velden zijn dubbelzinnig of deels ontbrekend.`,
+      STRUCTURE_WEAK: (s) =>
+        `De structuur is zwak of dubbelzinnig (score=${Math.round(s * 100)}%); conclusies blijven beschrijvend en voorzichtig.`,
+    },
+    sv: {
+      STRUCTURE_STRONG: (s) =>
+        `Tabellstrukturen är stark (poäng=${Math.round(s * 100)}%), med tydliga mätetal och få saknade värden.`,
+      STRUCTURE_USABLE: (s) =>
+        `Struktur/typning är användbar (poäng=${Math.round(s * 100)}%), men vissa fält är otydliga eller delvis saknas.`,
+      STRUCTURE_WEAK: (s) =>
+        `Strukturen är svag eller otydlig (poäng=${Math.round(s * 100)}%); slutsatserna är beskrivande och försiktiga.`,
+    },
+    no: {
+      STRUCTURE_STRONG: (s) =>
+        `Tabellstrukturen er sterk (score=${Math.round(s * 100)}%), med tydelige måltall og lite manglende data.`,
+      STRUCTURE_USABLE: (s) =>
+        `Struktur/typing er brukbar (score=${Math.round(s * 100)}%), men noen felt er tvetydige eller delvis mangler.`,
+      STRUCTURE_WEAK: (s) =>
+        `Strukturen er svak eller tvetydig (score=${Math.round(s * 100)}%); konklusjonene er beskrivende og forsiktige.`,
+    },
+    da: {
+      STRUCTURE_STRONG: (s) =>
+        `Tabelstrukturen er stærk (score=${Math.round(s * 100)}%), med klare måltal og få manglende værdier.`,
+      STRUCTURE_USABLE: (s) =>
+        `Struktur/typning er brugbar (score=${Math.round(s * 100)}%), men nogle felter er tvetydige eller delvist mangler.`,
+      STRUCTURE_WEAK: (s) =>
+        `Strukturen er svag eller tvetydig (score=${Math.round(s * 100)}%); konklusionerne er beskrivende og forsigtige.`,
+    },
+    fi: {
+      STRUCTURE_STRONG: (s) =>
+        `Taulukon rakenne on vahva (piste=${Math.round(s * 100)}%), mittarit ovat selkeitä ja puuttuvia arvoja on vähän.`,
+      STRUCTURE_USABLE: (s) =>
+        `Rakenne/tyypitys on käyttökelpoinen (piste=${Math.round(s * 100)}%), mutta osa kentistä on epäselviä tai osin puuttuu.`,
+      STRUCTURE_WEAK: (s) =>
+        `Rakenne on heikko tai epäselvä (piste=${Math.round(s * 100)}%); johtopäätökset ovat kuvailevia ja varovaisia.`,
+    },
+    pl: {
+      STRUCTURE_STRONG: (s) =>
+        `Struktura tabeli jest mocna (wynik=${Math.round(s * 100)}%), z czytelnymi metrykami i niską liczbą braków.`,
+      STRUCTURE_USABLE: (s) =>
+        `Struktura/typowanie są użyteczne (wynik=${Math.round(s * 100)}%), ale część pól jest niejednoznaczna lub częściowo brakująca.`,
+      STRUCTURE_WEAK: (s) =>
+        `Struktura jest słaba lub niejednoznaczna (wynik=${Math.round(s * 100)}%); wnioski są opisowe i ostrożne.`,
+    },
+    tr: {
+      STRUCTURE_STRONG: (s) =>
+        `Tablo yapısı güçlü (puan=${Math.round(s * 100)}%), metrikler net ve eksik veri az.`,
+      STRUCTURE_USABLE: (s) =>
+        `Yapı/tipleme kullanılabilir (puan=${Math.round(s * 100)}%), ancak bazı alanlar belirsiz veya kısmen eksik.`,
+      STRUCTURE_WEAK: (s) =>
+        `Yapı zayıf veya belirsiz (puan=${Math.round(s * 100)}%); sonuçlar betimleyici ve temkinli.`,
+    },
+    el: {
+      STRUCTURE_STRONG: (s) =>
+        `Η δομή του πίνακα είναι ισχυρή (βαθμός=${Math.round(s * 100)}%), με σαφείς μετρικές και λίγες ελλείψεις.`,
+      STRUCTURE_USABLE: (s) =>
+        `Η δομή/τυποποίηση είναι αξιοποιήσιμη (βαθμός=${Math.round(s * 100)}%), αλλά κάποια πεδία είναι ασαφή ή μερικώς ελλιπή.`,
+      STRUCTURE_WEAK: (s) =>
+        `Η δομή είναι αδύναμη ή ασαφής (βαθμός=${Math.round(s * 100)}%); τα συμπεράσματα είναι περιγραφικά και προσεκτικά.`,
+    },
+    cs: {
+      STRUCTURE_STRONG: (s) =>
+        `Struktura tabulky je silná (skóre=${Math.round(s * 100)}%), s jasnými metrikami a nízkou chybějící hodnotou.`,
+      STRUCTURE_USABLE: (s) =>
+        `Struktura/typování je použitelné (skóre=${Math.round(s * 100)}%), ale některá pole jsou nejasná nebo částečně chybí.`,
+      STRUCTURE_WEAK: (s) =>
+        `Struktura je slabá nebo nejasná (skóre=${Math.round(s * 100)}%); závěry jsou popisné a opatrné.`,
+    },
+    hu: {
+      STRUCTURE_STRONG: (s) =>
+        `A táblázat szerkezete erős (pontszám=${Math.round(s * 100)}%), világos metrikákkal és kevés hiánnyal.`,
+      STRUCTURE_USABLE: (s) =>
+        `A szerkezet/tipizálás használható (pontszám=${Math.round(s * 100)}%), de néhány mező kétértelmű vagy részben hiányzik.`,
+      STRUCTURE_WEAK: (s) =>
+        `A szerkezet gyenge vagy kétértelmű (pontszám=${Math.round(s * 100)}%); a következtetések leíró jellegűek és óvatosak.`,
+    },
+    ro: {
+      STRUCTURE_STRONG: (s) =>
+        `Structura tabelului este solidă (scor=${Math.round(s * 100)}%), cu metrici clare și puține valori lipsă.`,
+      STRUCTURE_USABLE: (s) =>
+        `Structura/tiparea sunt utilizabile (scor=${Math.round(s * 100)}%), dar unele câmpuri sunt ambigue sau parțial lipsesc.`,
+      STRUCTURE_WEAK: (s) =>
+        `Structura este slabă sau ambiguă (scor=${Math.round(s * 100)}%); concluziile sunt descriptive și prudente.`,
+    },
+    uk: {
+      STRUCTURE_STRONG: (s) =>
+        `Структура таблиці сильна (оцінка=${Math.round(s * 100)}%), метрики чіткі, пропусків мало.`,
+      STRUCTURE_USABLE: (s) =>
+        `Структура/типізація придатні (оцінка=${Math.round(s * 100)}%), але деякі поля неоднозначні або частково відсутні.`,
+      STRUCTURE_WEAK: (s) =>
+        `Структура слабка або неоднозначна (оцінка=${Math.round(s * 100)}%); висновки описові та обережні.`,
+    },
+    ru: {
+      STRUCTURE_STRONG: (s) =>
+        `Структура таблицы сильная (оценка=${Math.round(s * 100)}%), метрики понятные, пропусков мало.`,
+      STRUCTURE_USABLE: (s) =>
+        `Структура/типизация пригодны (оценка=${Math.round(s * 100)}%), но некоторые поля неоднозначны или частично отсутствуют.`,
+      STRUCTURE_WEAK: (s) =>
+        `Структура слабая или неоднозначная (оценка=${Math.round(s * 100)}%); выводы описательные и осторожные.`,
+    },
+    ar: {
+      STRUCTURE_STRONG: (s) =>
+        `بنية الجدول قوية (الدرجة=${Math.round(s * 100)}%) مع مقاييس واضحة وقلة في القيم المفقودة.`,
+      STRUCTURE_USABLE: (s) =>
+        `البنية/التصنيف قابلة للاستخدام (الدرجة=${Math.round(s * 100)}%) لكن بعض الحقول ملتبسة أو مفقودة جزئياً.`,
+      STRUCTURE_WEAK: (s) =>
+        `البنية ضعيفة أو ملتبسة (الدرجة=${Math.round(s * 100)}%); الاستنتاجات وصفية وحذرة.`,
+    },
+    he: {
+      STRUCTURE_STRONG: (s) =>
+        `מבנה הטבלה חזק (ציון=${Math.round(s * 100)}%), עם מדדים ברורים ומעט ערכים חסרים.`,
+      STRUCTURE_USABLE: (s) =>
+        `מבנה/טיפוס נתונים שימושיים (ציון=${Math.round(s * 100)}%), אך חלק מהשדות עמומים או חסרים חלקית.`,
+      STRUCTURE_WEAK: (s) =>
+        `המבנה חלש או עמום (ציון=${Math.round(s * 100)}%); המסקנות תיאוריות וזהירות.`,
+    },
+    hi: {
+      STRUCTURE_STRONG: (s) =>
+        `टेबल की संरचना मजबूत है (स्कोर=${Math.round(s * 100)}%), स्पष्ट मेट्रिक्स और कम मिसिंग डेटा के साथ।`,
+      STRUCTURE_USABLE: (s) =>
+        `संरचना/टाइपिंग उपयोगी है (स्कोर=${Math.round(s * 100)}%), लेकिन कुछ फ़ील्ड अस्पष्ट या आंशिक रूप से गायब हैं।`,
+      STRUCTURE_WEAK: (s) =>
+        `संरचना कमजोर या अस्पष्ट है (स्कोर=${Math.round(s * 100)}%); निष्कर्ष वर्णनात्मक और सावधान हैं।`,
+    },
+    bn: {
+      STRUCTURE_STRONG: (s) =>
+        `টেবিলের গঠন শক্তিশালী (স্কোর=${Math.round(s * 100)}%), স্পষ্ট মেট্রিক এবং কম অনুপস্থিত ডেটা সহ।`,
+      STRUCTURE_USABLE: (s) =>
+        `গঠন/টাইপিং ব্যবহারযোগ্য (স্কোর=${Math.round(s * 100)}%), তবে কিছু ক্ষেত্র অস্পষ্ট বা আংশিকভাবে অনুপস্থিত।`,
+      STRUCTURE_WEAK: (s) =>
+        `গঠন দুর্বল বা অস্পষ্ট (স্কোর=${Math.round(s * 100)}%); উপসংহারগুলো বর্ণনামূলক ও সতর্ক।`,
+    },
+    ur: {
+      STRUCTURE_STRONG: (s) =>
+        `ٹیبل کی ساخت مضبوط ہے (اسکور=${Math.round(s * 100)}%)، واضح میٹرکس اور کم گمشدہ ڈیٹا کے ساتھ۔`,
+      STRUCTURE_USABLE: (s) =>
+        `ساخت/ٹائپنگ قابلِ استعمال ہے (اسکور=${Math.round(s * 100)}%)، مگر کچھ فیلڈز مبہم یا جزوی طور پر غائب ہیں۔`,
+      STRUCTURE_WEAK: (s) =>
+        `ساخت کمزور یا مبہم ہے (اسکور=${Math.round(s * 100)}%); نتائج وضاحتی اور محتاط ہیں۔`,
+    },
+    id: {
+      STRUCTURE_STRONG: (s) =>
+        `Struktur tabel kuat (skor=${Math.round(s * 100)}%), metrik jelas dan sedikit data hilang.`,
+      STRUCTURE_USABLE: (s) =>
+        `Struktur/pengetikan cukup dapat dipakai (skor=${Math.round(s * 100)}%), tetapi beberapa bidang ambigu atau sebagian hilang.`,
+      STRUCTURE_WEAK: (s) =>
+        `Struktur lemah atau ambigu (skor=${Math.round(s * 100)}%); kesimpulan bersifat deskriptif dan konservatif.`,
+    },
+    ms: {
+      STRUCTURE_STRONG: (s) =>
+        `Struktur jadual kukuh (skor=${Math.round(s * 100)}%), metrik jelas dan sedikit data hilang.`,
+      STRUCTURE_USABLE: (s) =>
+        `Struktur/pentipaan boleh digunakan (skor=${Math.round(s * 100)}%), tetapi beberapa medan samar atau sebahagiannya hilang.`,
+      STRUCTURE_WEAK: (s) =>
+        `Struktur lemah atau samar (skor=${Math.round(s * 100)}%); kesimpulan bersifat deskriptif dan berhati-hati.`,
+    },
+    th: {
+      STRUCTURE_STRONG: (s) =>
+        `โครงสร้างตารางแข็งแรง (คะแนน=${Math.round(s * 100)}%) มีตัวชี้วัดชัดเจนและข้อมูลหายไม่มาก`,
+      STRUCTURE_USABLE: (s) =>
+        `โครงสร้าง/การจัดประเภทพอใช้ได้ (คะแนน=${Math.round(s * 100)}%) แต่บางฟิลด์ยังคลุมเครือหรือขาดบางส่วน`,
+      STRUCTURE_WEAK: (s) =>
+        `โครงสร้างอ่อนหรือคลุมเครือ (คะแนน=${Math.round(s * 100)}%); ข้อสรุปเป็นเชิงพรรณนาและระมัดระวัง`,
+    },
+    vi: {
+      STRUCTURE_STRONG: (s) =>
+        `Cấu trúc bảng mạnh (điểm=${Math.round(s * 100)}%), chỉ số rõ ràng và ít dữ liệu thiếu.`,
+      STRUCTURE_USABLE: (s) =>
+        `Cấu trúc/định kiểu có thể dùng (điểm=${Math.round(s * 100)}%), nhưng một số trường mơ hồ hoặc thiếu một phần.`,
+      STRUCTURE_WEAK: (s) =>
+        `Cấu trúc yếu hoặc mơ hồ (điểm=${Math.round(s * 100)}%); kết luận mang tính mô tả và thận trọng.`,
+    },
+    ja: {
+      STRUCTURE_STRONG: (s) =>
+        `表の構造は強固です（スコア=${Math.round(s * 100)}%）。指標が明確で欠損も少ないです。`,
+      STRUCTURE_USABLE: (s) =>
+        `構造／型推定は概ね利用可能です（スコア=${Math.round(s * 100)}%）が、一部の項目は曖昧または欠損があります。`,
+      STRUCTURE_WEAK: (s) =>
+        `構造が弱い／曖昧です（スコア=${Math.round(s * 100)}%）。結論は記述的で慎重になります。`,
+    },
+    ko: {
+      STRUCTURE_STRONG: (s) =>
+        `표 구조가 강함(점수=${Math.round(s * 100)}%). 지표가 명확하고 결측이 적습니다.`,
+      STRUCTURE_USABLE: (s) =>
+        `구조/타이핑은 사용 가능(점수=${Math.round(s * 100)}%)하지만 일부 필드는 모호하거나 부분적으로 누락되었습니다.`,
+      STRUCTURE_WEAK: (s) =>
+        `구조가 약하거나 모호함(점수=${Math.round(s * 100)}%); 결론은 설명적이고 보수적입니다.`,
+    },
+    zh: {
+      STRUCTURE_STRONG: (s) =>
+        `表结构很可靠（评分=${Math.round(s * 100)}%），指标清晰且缺失值较少。`,
+      STRUCTURE_USABLE: (s) =>
+        `结构/类型判断可用（评分=${Math.round(s * 100)}%），但部分字段含义不清或存在缺失。`,
+      STRUCTURE_WEAK: (s) =>
+        `结构较弱或不明确（评分=${Math.round(s * 100)}%）；结论将偏描述性且更保守。`,
+    },
+  };
+
+  const dict = T[L] ?? T.en;
+  return dict[code](score);
+}
+
 
 /** --------------------------
  * Output shaping (your existing header contract)
@@ -2413,7 +2678,8 @@ If unsure, write concise content under the correct header and explicitly state u
       }
     }
 
-    const explanation = `${cleaned}\n\nEvidence strength: ${confidence.level} – ${confidence.note}`;
+const noteLocalized = localizeConfidenceNote(lang, confidence.reason_code, confidence.score);
+const explanation = `${cleaned}\n\nEvidence strength: ${confidence.level} – ${noteLocalized}`;
 
     const okRes = NextResponse.json({
   ok: true,

@@ -708,6 +708,7 @@ const UI_LABELS = {
     ko: "편집",
     zh: "编辑",
   } as Record<string, string>,
+
   pasteHere: {
   en: "Paste your data here…",
   it: "Incolla i tuoi dati qui…",
@@ -741,6 +742,7 @@ const UI_LABELS = {
   ko: "여기에 데이터를 붙여 넣으세요…",
   zh: "在此粘贴你的数据…",
 } as Record<string, string>,
+
 processingVectors: {
   en: "Processing numerical vectors…",
   it: "Elaborazione dei vettori numerici…",
@@ -774,6 +776,7 @@ processingVectors: {
   ko: "숫자 벡터 처리 중…",
   zh: "正在处理数值向量…",
 } as Record<string, string>,
+
 synthesis: {
   en: "Synthesis",
   it: "Sintesi",
@@ -808,6 +811,73 @@ synthesis: {
   zh: "综合",
 } as Record<string, string>,
 
+uploadFile: {
+  en: "Upload file",
+  it: "Carica file",
+  fr: "Téléverser un fichier",
+  es: "Subir archivo",
+  de: "Datei hochladen",
+  pt: "Enviar arquivo",
+  nl: "Bestand uploaden",
+  sv: "Ladda upp fil",
+  no: "Last opp fil",
+  da: "Upload fil",
+  fi: "Lataa tiedosto",
+  pl: "Prześlij plik",
+  tr: "Dosya yükle",
+  el: "Μεταφόρτωση αρχείου",
+  cs: "Nahrát soubor",
+  hu: "Fájl feltöltése",
+  ro: "Încarcă fișier",
+  uk: "Завантажити файл",
+  ru: "Загрузить файл",
+  ar: "تحميل ملف",
+  he: "העלאת קובץ",
+  hi: "फ़ाइल अपलोड करें",
+  bn: "ফাইল আপলোড করুন",
+  ur: "فائل اپ لوڈ کریں",
+  id: "Unggah file",
+  ms: "Muat naik fail",
+  th: "อัปโหลดไฟล์",
+  vi: "Tải tệp lên",
+  ja: "ファイルをアップロード",
+  ko: "파일 업로드",
+  zh: "上传文件",
+} as Record<string, string>,
+
+change: {
+  en: "Change",
+  it: "Cambia",
+  fr: "Changer",
+  es: "Cambiar",
+  de: "Ändern",
+  pt: "Alterar",
+  nl: "Wijzigen",
+  sv: "Ändra",
+  no: "Endre",
+  da: "Skift",
+  fi: "Vaihda",
+  pl: "Zmień",
+  tr: "Değiştir",
+  el: "Αλλαγή",
+  cs: "Změnit",
+  hu: "Módosítás",
+  ro: "Schimbă",
+  uk: "Змінити",
+  ru: "Изменить",
+  ar: "تغيير",
+  he: "שנה",
+  hi: "बदलें",
+  bn: "পরিবর্তন",
+  ur: "تبدیل کریں",
+  id: "Ubah",
+  ms: "Tukar",
+  th: "เปลี่ยน",
+  vi: "Thay đổi",
+  ja: "変更",
+  ko: "변경",
+  zh: "更改",
+} as Record<string, string>,
 };
 
 
@@ -2507,7 +2577,12 @@ const chip = buildTrialChip(billing);
                   )}
                 >
                   <Upload size={14} />
-                  <span>{selectedFile ? "Change" : "Upload file"}</span>
+                  <span>
+  {selectedFile
+    ? (UI_LABELS.change[uiLang] ?? UI_LABELS.change.en)
+    : (UI_LABELS.uploadFile[uiLang] ?? UI_LABELS.uploadFile.en)}
+</span>
+
                   <input type="file" className="hidden" onChange={onFile} accept=".csv,.txt,.tsv,.xls,.xlsx" />
                 </label>
 
@@ -3133,12 +3208,13 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
 Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                         </span>
                       </>
-                    ) : showEditToRerun ? (
-                      "Edit input to re-run"
-                    ) : (
-                     UI_LABELS.explain[uiLang] ?? UI_LABELS.explain.en
+) : showEditToRerun ? (
+  UI_LABELS.edit[uiLang] ?? UI_LABELS.edit.en
+) : (
+  UI_LABELS.explain[uiLang] ?? UI_LABELS.explain.en
+)
 
-                    )}
+                    }
                   </button>
 
                   <button
