@@ -2524,39 +2524,44 @@ const chip = buildTrialChip(billing);
       )}
     />
 
-    <span className="relative z-10 flex items-center justify-center gap-3">
-      {/* small dot */}
-      <span
-        className={cn(
-          "h-1.5 w-1.5 rounded-full shrink-0",
-          theme === "dark" ? "bg-indigo-300/80" : "bg-indigo-600/70"
-        )}
-        aria-hidden="true"
-      />
-      <span className="flex flex-col items-start leading-tight">
-        <span className="text-[15px] font-semibold tracking-[-0.01em]">
-          Continue free trial
-        </span>
-        <span
-          className={cn(
-            "mt-0.5 text-[11px] font-medium",
-            theme === "dark" ? "text-white/60" : "text-zinc-500"
-          )}
-        >
-          3-day trial · No card
-        </span>
-      </span>
+   <span className="relative z-10 flex items-center justify-center gap-3">
+  {/* small dot */}
+  <span
+    className={cn(
+      "h-1.5 w-1.5 rounded-full shrink-0",
+      theme === "dark" ? "bg-indigo-300/80" : "bg-indigo-600/70"
+    )}
+    aria-hidden="true"
+  />
 
-      <span
-        className={cn(
-          "ml-2 opacity-70 group-hover:opacity-90 transition-opacity",
-          theme === "dark" ? "text-white/70" : "text-zinc-600"
-        )}
-        aria-hidden="true"
-      >
-        →
-      </span>
+  {/* ✅ Mobile: one line | Desktop: your 2-line layout */}
+  <span className="flex items-center sm:flex-col sm:items-start leading-tight gap-0 sm:gap-0">
+    <span className="text-[15px] font-semibold tracking-[-0.01em] whitespace-nowrap">
+      Continue free trial
     </span>
+
+    {/* ✅ Keep the subline on >= sm so mobile stays clean */}
+    <span
+      className={cn(
+        "hidden sm:block mt-0.5 text-[11px] font-medium",
+        theme === "dark" ? "text-white/60" : "text-zinc-500"
+      )}
+    >
+      3-day trial · No card
+    </span>
+  </span>
+
+  <span
+    className={cn(
+      "ml-2 opacity-70 group-hover:opacity-90 transition-opacity",
+      theme === "dark" ? "text-white/70" : "text-zinc-600"
+    )}
+    aria-hidden="true"
+  >
+    →
+  </span>
+</span>
+
   </button>
 
   {/* ✅ 2) SUBSCRIBE SECOND */}
@@ -2624,19 +2629,26 @@ const chip = buildTrialChip(billing);
                   )}
                 >
                   <div className="w-full space-y-3">
-                    <div className="space-y-1">
-                      <p
-                        className={cn(
-                          "text-[10px] font-black uppercase tracking-[0.28em]",
-                          theme === "dark" ? "text-white/55" : "text-zinc-600"
-                        )}
-                      >
-                        Secure email link
-                      </p>
-                      <p className={cn("text-[12px] font-medium", theme === "dark" ? "text-white/55" : "text-zinc-600")}>
-                        We’ll send a one-time sign-in link to restore access.
-                      </p>
-                    </div>
+<div className="space-y-1 text-center md:text-left">
+  <p
+    className={cn(
+      "text-[10px] font-black uppercase tracking-[0.28em]",
+      theme === "dark" ? "text-white/55" : "text-zinc-600"
+    )}
+  >
+    Secure email link
+  </p>
+
+  <p
+    className={cn(
+      "text-[12px] font-medium",
+      theme === "dark" ? "text-white/55" : "text-zinc-600"
+    )}
+  >
+    We’ll send a one-time sign-in link to restore access.
+  </p>
+</div>
+
 
                     <div className="flex flex-col sm:flex-row gap-3">
                       <div className="flex-1">
