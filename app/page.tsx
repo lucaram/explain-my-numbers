@@ -2380,6 +2380,8 @@ const chip = buildTrialChip(billing);
           <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center md:items-start gap-10 md:gap-16">
 {/* Visual anchor — desktop only */}
 <div className="relative group/icon md:pt-1 hidden md:block">
+{/* Visual anchor — desktop only */}
+<div className="relative group/icon md:pt-1 hidden md:block">
   <div
     className={cn(
       "w-20 h-20 rounded-[2rem] flex items-center justify-center relative z-10",
@@ -2389,15 +2391,14 @@ const chip = buildTrialChip(billing);
         : "bg-white border border-zinc-200 shadow-[0_18px_50px_rgba(0,0,0,0.10)]"
     )}
   >
-<CreditCard
-  size={32}
-  strokeWidth={1.3}
-  className={`hidden md:inline-flex ${
-    theme === "dark" ? "text-indigo-300" : "text-indigo-600"
-  }`}
-/>
-
+    <CreditCard
+      size={32}
+      strokeWidth={1.3}
+      className={theme === "dark" ? "text-indigo-300" : "text-indigo-600"}
+    />
   </div>
+</div>
+
 
   <div className="absolute inset-0 bg-indigo-500 blur-2xl opacity-15 scale-75 group-hover/icon:opacity-25 transition-opacity" />
 </div>
