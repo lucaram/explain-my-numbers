@@ -15,7 +15,6 @@ function getRedis() {
   return Redis.fromEnv();
 }
 
-
 // Stored snapshot (optional cache / audit)
 type EntitlementSnapshot = {
   customerId: string;
@@ -41,6 +40,25 @@ async function writeSnapshot(customerId: string, snap: EntitlementSnapshot) {
   await redis.set(keyForCustomer(customerId), snap, { ex: 60 * 60 * 24 * 14 }); // 14 days
 }
 
+/** --------------------------
+ * Webhook idempotency guard (event replay protection)
+ * -------------------------- */
+
+function eventKey(eventId: string) {
+  return `emn:billing:webhook:evt:${eventId}`;
+}
+
+/**
+ * Returns true if this event was NOT processed before (first time).
+ * Returns false if event was already processed (duplicate/retry).
+ */
+async function markEventProcessedOnce(eventId: string) {
+  const redis = getRedis();
+  // NX = only set if not exists
+  // Keep for 7 days (enough for Stripe retries / duplicates)
+  const ok = await redis.set(eventKey(eventId), "1", { ex: 60 * 60 * 24 * 7, nx: true });
+  return ok === "OK";
+}
 
 function jsonOk() {
   return NextResponse.json({ ok: true });
@@ -104,16 +122,8 @@ function getSubscriptionIdFromInvoice(inv: Stripe.Invoice): string | null {
   return null;
 }
 
-function normalizeInvoiceStatus(
-  status: unknown
-): EntitlementSnapshot["lastInvoiceStatus"] {
-  if (
-    status === "paid" ||
-    status === "open" ||
-    status === "uncollectible" ||
-    status === "void" ||
-    status === "draft"
-  ) {
+function normalizeInvoiceStatus(status: unknown): EntitlementSnapshot["lastInvoiceStatus"] {
+  if (status === "paid" || status === "open" || status === "uncollectible" || status === "void" || status === "draft") {
     return status;
   }
   return "unknown";
@@ -133,13 +143,21 @@ export async function POST(req: Request) {
   let event: Stripe.Event;
   const stripe = getStripe();
 
-try {
-  event = stripe.webhooks.constructEvent(rawBody, sig, secret);
-}
- catch (err: unknown) {
-    const msg =
-      err instanceof Error ? err.message : "Unknown signature verification error";
+  try {
+    event = stripe.webhooks.constructEvent(rawBody, sig, secret);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Unknown signature verification error";
     return jsonErr(`Webhook signature verification failed. ${msg}`.trim(), 400);
+  }
+
+  // ✅ Idempotency guard: ignore retries/duplicates
+  try {
+    const firstTime = await markEventProcessedOnce(event.id);
+    if (!firstTime) return jsonOk();
+  } catch (e) {
+    // If Redis is down, returning 5xx causes Stripe retries (safer than silently dropping)
+    console.error("Webhook idempotency guard failed:", e);
+    return NextResponse.json({ ok: false }, { status: 500 });
   }
 
   try {
@@ -155,15 +173,15 @@ try {
 
         // Fetch subscription for authoritative fields (status, trial_end, etc.)
         let sub: Stripe.Subscription | null = null;
-if (subscriptionId) {
-  try {
-    sub = await stripe.subscriptions.retrieve(subscriptionId, {
-      expand: ["items.data.price"],
-    });
-  } catch {
-    sub = null;
-  }
-}
+        if (subscriptionId) {
+          try {
+            sub = await stripe.subscriptions.retrieve(subscriptionId, {
+              expand: ["items.data.price"],
+            });
+          } catch {
+            sub = null;
+          }
+        }
 
         const now = Math.floor(Date.now() / 1000);
 
@@ -174,7 +192,8 @@ if (subscriptionId) {
           trialEndsAt: typeof sub?.trial_end === "number" ? sub.trial_end : null,
           currentPeriodEnd: sub ? getCurrentPeriodEndFromSubscription(sub) : null,
           cancelAt: typeof sub?.cancel_at === "number" ? sub.cancel_at : null,
-          cancelAtPeriodEnd: typeof sub?.cancel_at_period_end === "boolean" ? sub.cancel_at_period_end : null,
+          cancelAtPeriodEnd:
+            typeof sub?.cancel_at_period_end === "boolean" ? sub.cancel_at_period_end : null,
           lastInvoiceStatus: "unknown",
           lastPaymentFailed: false,
           updatedAt: now,

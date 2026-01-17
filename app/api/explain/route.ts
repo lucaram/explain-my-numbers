@@ -298,17 +298,29 @@ function assertPasteSize(s: string) {
 
 function getClientIp(req: Request) {
   const xf = req.headers.get("x-forwarded-for");
-  if (xf) return xf.split(",")[0].trim();
+  if (xf) {
+    const first = xf.split(",")[0]?.trim();
+    if (first) return first;
+  }
 
   const xr = req.headers.get("x-real-ip");
   if (xr) return xr.trim();
 
-  return (
-    req.headers.get("cf-connecting-ip")?.trim() ||
-    req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
-    "127.0.0.1"
-  );
+  const cf = req.headers.get("cf-connecting-ip")?.trim();
+  if (cf) return cf;
+
+  const vercel = req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim();
+  if (vercel) return vercel;
+
+  // ✅ Fallback: stable per-client-ish bucket without collapsing everyone into 127.0.0.1
+  // Uses UA + accept-language (both commonly present) to spread "unknown" clients.
+  const ua = (req.headers.get("user-agent") ?? "").slice(0, 300);
+  const al = (req.headers.get("accept-language") ?? "").slice(0, 200);
+  const key = createHash("sha256").update(`${ua}|${al}`).digest("hex").slice(0, 16);
+
+  return `unknown:${key}`;
 }
+
 
 async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
   const res = await ratelimit.limit(identifier);
@@ -462,9 +474,15 @@ function enforceSameSite(req: Request) {
   const origin = normalizeOriginValue((req.headers.get("origin") ?? "").trim());
   const referer = (req.headers.get("referer") ?? "").trim();
 
-  // ✅ NEW: if allowlist is configured, require browser context
-  // (blocks curl/scripts that omit both Origin and Referer)
-if (!origin && !referer) return;
+// ✅ If allowlist is configured, require browser context.
+// This blocks curl/scripts that omit both Origin and Referer.
+if (!origin && !referer) {
+  throw Object.assign(new Error("Forbidden (missing Origin/Referer)."), {
+    code: "FORBIDDEN" as ApiErrorCode,
+    status: 403,
+  });
+}
+
 
   if (origin && !allowed.has(origin)) {
     throw Object.assign(new Error("Forbidden origin."), {
@@ -2084,6 +2102,7 @@ const uiReason =
 
   // ✅ Require short-lived server gate token (prevents quota burning)
   try {
+    enforceSameSite(req);
     await verifyGateTokenOrThrow(req);
   } catch (err: any) {
     const isKnown = typeof err?.code === "string" && typeof err?.status === "number";
@@ -2142,8 +2161,7 @@ const uiReason =
 
 
   try {
-    // HIGH: prevent cross-site quota theft (browser-origin allowlist)
-    enforceSameSite(req);
+
 
     const extracted = await extractInput(req);
 

@@ -126,7 +126,7 @@ function corsHeadersFor(req: Request): Record<string, string> {
     "Access-Control-Allow-Origin": origin,
     Vary: "Origin",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-"Access-Control-Allow-Headers": "Content-Type, Authorization",
+"Access-Control-Allow-Headers": "Content-Type, Authorization, X-EMN-Gate",
 
     "Access-Control-Max-Age": "86400",
   };
@@ -169,17 +169,28 @@ export async function OPTIONS(req: Request) {
 
 function getClientIp(req: Request) {
   const xf = req.headers.get("x-forwarded-for");
-  if (xf) return xf.split(",")[0].trim();
+  if (xf) {
+    const first = xf.split(",")[0]?.trim();
+    if (first) return first;
+  }
 
   const xr = req.headers.get("x-real-ip");
   if (xr) return xr.trim();
 
-  return (
-    req.headers.get("cf-connecting-ip")?.trim() ||
-    req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
-    "127.0.0.1"
-  );
+  const cf = req.headers.get("cf-connecting-ip")?.trim();
+  if (cf) return cf;
+
+  const vercel = req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim();
+  if (vercel) return vercel;
+
+  // ✅ Fallback: stable per-client-ish bucket without collapsing everyone into 127.0.0.1
+  const ua = (req.headers.get("user-agent") ?? "").slice(0, 300);
+  const al = (req.headers.get("accept-language") ?? "").slice(0, 200);
+  const key = createHash("sha256").update(`${ua}|${al}`).digest("hex").slice(0, 16);
+
+  return `unknown:${key}`;
 }
+
 
 async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
   const res = await ratelimit.limit(identifier);

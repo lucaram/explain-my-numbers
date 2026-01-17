@@ -1,8 +1,9 @@
 // src/app/api/auth/start-trial/route.ts
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { createHmac, randomBytes } from "crypto";
+import { createHmac, randomBytes, createHash } from "crypto";
 import { Redis } from "@upstash/redis";
+import { Ratelimit } from "@upstash/ratelimit";
 import { sendMagicLinkEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
@@ -41,6 +42,47 @@ function customerKey(email: string) {
   return `emn:cus:email:${email}`;
 }
 
+/** --------------------------
+ * Rate limiting helpers (match your newer pattern)
+ * -------------------------- */
+
+function getClientIp(req: Request) {
+  const xf = req.headers.get("x-forwarded-for");
+  if (xf) {
+    const first = xf.split(",")[0]?.trim();
+    if (first) return first;
+  }
+
+  const xr = req.headers.get("x-real-ip");
+  if (xr) return xr.trim();
+
+  const cf = req.headers.get("cf-connecting-ip")?.trim();
+  if (cf) return cf;
+
+  const vercel = req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim();
+  if (vercel) return vercel;
+
+  // Fallback: stable per-client-ish bucket (avoid collapsing everyone into 127.0.0.1)
+  const ua = (req.headers.get("user-agent") ?? "").slice(0, 300);
+  const al = (req.headers.get("accept-language") ?? "").slice(0, 200);
+  const key = createHash("sha256").update(`${ua}|${al}`).digest("hex").slice(0, 16);
+
+  return `unknown:${key}`;
+}
+
+function hashEmailKey(email: string) {
+  // non-reversible, stable, short key for Redis
+  return createHash("sha256").update(email).digest("hex").slice(0, 24);
+}
+
+async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
+  const res = await ratelimit.limit(identifier);
+  if (res.success) return { ok: true as const };
+
+  const retryAfterSec = Math.max(1, Math.ceil((res.reset - Date.now()) / 1000));
+  return { ok: false as const, retryAfterSec };
+}
+
 export async function POST(req: Request) {
   try {
     const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
@@ -65,6 +107,34 @@ export async function POST(req: Request) {
     const stripe = new Stripe(STRIPE_SECRET_KEY);
     const redis = Redis.fromEnv();
 
+    // --------------------------
+    // ✅ Rate limiting (anti-bot / anti-email-bombing)
+    // --------------------------
+    const ip = getClientIp(req);
+
+    const ipRatelimit = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(10, "10 m"), // 10 requests / 10 minutes per IP
+      analytics: false,
+      prefix: "emn:auth:trial:ip",
+    });
+
+    const emailRatelimit = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(3, "30 m"), // 3 requests / 30 minutes per email
+      analytics: false,
+      prefix: "emn:auth:trial:email",
+    });
+
+    const rlIp = await applyRateLimit(ipRatelimit, `ip:${ip}`);
+    if (!rlIp.ok) {
+      const retry = rlIp.retryAfterSec ?? 600;
+      return NextResponse.json(
+        { ok: false, error: "Too many requests. Please try again soon.", error_code: "RATE_LIMITED" },
+        { status: 429, headers: { "Retry-After": String(retry) } }
+      );
+    }
+
     const body = (await req.json().catch(() => null)) as { email?: string } | null;
     const rawEmail = (body?.email ?? "").trim().toLowerCase();
 
@@ -72,6 +142,19 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { ok: false, error: "Please enter a valid email address.", error_code: "INVALID_EMAIL" },
         { status: 400 }
+      );
+    }
+
+    const rlEmail = await applyRateLimit(emailRatelimit, `email:${hashEmailKey(rawEmail)}`);
+    if (!rlEmail.ok) {
+      const retry = rlEmail.retryAfterSec ?? 1800;
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Too many requests for this email. Please try again later.",
+          error_code: "RATE_LIMITED",
+        },
+        { status: 429, headers: { "Retry-After": String(retry) } }
       );
     }
 
@@ -119,7 +202,9 @@ export async function POST(req: Request) {
       MAGIC_LINK_SECRET
     );
 
-    const verifyUrl = `${APP_ORIGINS.split(",")[0].trim()}/api/auth/verify-magic-link?token=${encodeURIComponent(token)}`;
+    const verifyUrl = `${APP_ORIGINS.split(",")[0].trim()}/api/auth/verify-magic-link?token=${encodeURIComponent(
+      token
+    )}`;
 
     // 3) Email the link
     await sendMagicLinkEmail({

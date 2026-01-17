@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { Redis } from "@upstash/redis";
+import { Ratelimit } from "@upstash/ratelimit";
 import { createHmac, timingSafeEqual, createHash } from "crypto";
 
 export const runtime = "nodejs";
@@ -63,6 +64,34 @@ function nonceKey(nonce: string) {
   return `emn:magic:nonce:${nonce}`;
 }
 
+/** --------------------------
+ * Rate limiting helpers (IP-only for verify endpoint)
+ * -------------------------- */
+
+function getClientIp(req: Request) {
+  const xf = req.headers.get("x-forwarded-for");
+  if (xf) {
+    const first = xf.split(",")[0]?.trim();
+    if (first) return first;
+  }
+
+  const xr = req.headers.get("x-real-ip");
+  if (xr) return xr.trim();
+
+  const cf = req.headers.get("cf-connecting-ip")?.trim();
+  if (cf) return cf;
+
+  const vercel = req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim();
+  if (vercel) return vercel;
+
+  // fallback bucket (avoid collapsing everyone into 127.0.0.1)
+  const ua = (req.headers.get("user-agent") ?? "").slice(0, 300);
+  const al = (req.headers.get("accept-language") ?? "").slice(0, 200);
+  const key = createHash("sha256").update(`${ua}|${al}`).digest("hex").slice(0, 16);
+
+  return `unknown:${key}`;
+}
+
 export async function GET(req: Request) {
   const MAGIC_LINK_SECRET = process.env.MAGIC_LINK_SECRET || "";
   const APP_ORIGINS = process.env.APP_ORIGINS || "";
@@ -76,6 +105,22 @@ export async function GET(req: Request) {
       { ok: false, error: "Server misconfigured (missing MAGIC_LINK_SECRET or APP_ORIGINS)." },
       { status: 500 }
     );
+  }
+
+  // ✅ Rate limit verify endpoint to reduce bot hammering / token spraying
+  // Keep it IP-only and generous to avoid blocking normal users.
+  const redis = Redis.fromEnv();
+  const ipRatelimit = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(30, "5 m"), // 30 requests / 5 minutes / IP
+    analytics: false,
+    prefix: "emn:auth:verify:ip",
+  });
+
+  const ip = getClientIp(req);
+  const rl = await ipRatelimit.limit(`ip:${ip}`);
+  if (!rl.success) {
+    return safeRedirect(origin, "/?magic=error&reason=rate_limited");
   }
 
   try {
@@ -114,7 +159,6 @@ export async function GET(req: Request) {
     }
 
     // --- nonce replay protection ---
-    const redis = Redis.fromEnv();
     const alreadyUsed = await redis.get(nonceKey(payload.nonce));
     if (alreadyUsed) {
       return safeRedirect(origin, "/?magic=error&reason=link_used");
@@ -127,9 +171,7 @@ export async function GET(req: Request) {
       email: payload.email,
       stripeCustomerId: payload.stripeCustomerId,
       iat: nowSec,
-      sid: base64url(
-        createHash("sha256").update(`${payload.stripeCustomerId}:${payload.email}`).digest()
-      ).slice(0, 22),
+      sid: base64url(createHash("sha256").update(`${payload.stripeCustomerId}:${payload.email}`).digest()).slice(0, 22),
     };
 
     const sessionB64 = base64url(JSON.stringify(session));
@@ -144,8 +186,7 @@ export async function GET(req: Request) {
 
       const stripe = new Stripe(STRIPE_SECRET_KEY);
 
-      // ✅ NEW: enforce "trial only once per Stripe customer"
-      // If this customer has EVER had a subscription (trial or paid), block another trial.
+      // Enforce "trial only once per Stripe customer"
       const existing = await stripe.subscriptions.list({
         customer: payload.stripeCustomerId,
         status: "all",
@@ -153,8 +194,6 @@ export async function GET(req: Request) {
       });
 
       if (existing.data.length > 0) {
-        // You can choose a different UX here.
-        // This redirects back to home with a hint param the UI can display.
         const res = safeRedirect(origin, "/?magic=ok&intent=subscribe_required");
 
         res.cookies.set({
@@ -171,7 +210,7 @@ export async function GET(req: Request) {
       }
 
       // Create trial subscription NOW (at click time)
-const idempotencyKey = `emn:trial_on_click:${payload.stripeCustomerId}`;
+      const idempotencyKey = `emn:trial_on_click:${payload.stripeCustomerId}`;
 
       const sub = await stripe.subscriptions.create(
         {
