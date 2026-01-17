@@ -2817,7 +2817,7 @@ const chip = buildTrialChip(billing);
                   "w-full bg-transparent outline-none resize-none",
                   "text-[14px] md:text-[15px] leading-relaxed font-medium tracking-[-0.012em]",
                   "placeholder:text-zinc-400 dark:placeholder:text-zinc-700",
-                  "h-[250px] md:h-[150px]",
+                  "h-[175px] md:h-[150px]",
                   "p-6 pb-24 md:pt-10 md:pb-10 md:pl-10 md:pr-6",
                   "overflow-y-auto emn-scroll",
                   "focus-visible:outline-none",
