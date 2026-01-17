@@ -2529,20 +2529,29 @@ const chip = buildTrialChip(billing);
     />
 
 <span className="relative z-10 flex flex-col items-center leading-tight">
-  <span className="flex items-center gap-3">
-    <span>Continue our free trial</span>
-    <ArrowRight 
-      size={18} 
+  {/* Title row (dot + title + arrow aligned on the same line) */}
+  <span className="flex items-center justify-center gap-3">
+
+    <span className="text-[15px] font-semibold tracking-[-0.01em]">
+      Continue our free trial
+    </span>
+    <ArrowRight
+      size={18}
       className={cn(
         "opacity-70 group-hover:opacity-90 transition-opacity",
         theme === "dark" ? "text-white/70" : "text-zinc-600"
-      )} 
+      )}
+      aria-hidden="true"
     />
   </span>
-  <span className={cn(
-    "mt-0.5 text-[11px] font-medium opacity-70",
-    theme === "dark" ? "text-white/70" : "text-zinc-600"
-  )}>
+
+  {/* Subtitle row (centered, like Subscribe) */}
+  <span
+    className={cn(
+      "mt-0.5 text-[11px] font-medium opacity-70 text-center",
+      theme === "dark" ? "text-white/70" : "text-zinc-600"
+    )}
+  >
     3-day trial · No card
   </span>
 </span>
