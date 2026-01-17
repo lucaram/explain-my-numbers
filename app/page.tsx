@@ -23,6 +23,10 @@ import {
   ArrowRight,
   Send,
 } from "lucide-react";
+// ✅ Deterministic number formatting (prevents SSR/CSR locale mismatch)
+const NF = new Intl.NumberFormat("en-GB");
+const fmtN = (n: number) => NF.format(n);
+
 
 /** TYPES & UTILS */
 type Theme = "light" | "dark";
@@ -241,6 +245,13 @@ function normalizeLang(lang?: string): string {
   if (base === "cn") return "zh";
   if (base === "jp") return "ja";
   if (base === "kr") return "ko";
+  if (base === "nb" || base === "nn") return "no";   // Norwegian variants -> "no"
+if (base === "in") return "id";                    // legacy -> Indonesian
+if (base === "zh") {
+  // if backend ever returns zh-hans/zh-hant, you can keep them both as zh
+  return "zh";
+}
+
   return base;
 }
 
@@ -595,7 +606,210 @@ const UI_LABELS = {
     ko: "신뢰도",
     zh: "可信度",
   } as Record<string, string>,
+  // ✅ Generic UI / button labels
+  explain: {
+    en: "Explain",
+    it: "Spiega",
+    fr: "Expliquer",
+    es: "Explicar",
+    de: "Erklären",
+    pt: "Explicar",
+    nl: "Uitleggen",
+    sv: "Förklara",
+    no: "Forklar",
+    da: "Forklar",
+    fi: "Selitä",
+    pl: "Wyjaśnij",
+    tr: "Açıkla",
+    el: "Εξήγησε",
+    cs: "Vysvětlit",
+    hu: "Magyarázd el",
+    ro: "Explică",
+    uk: "Пояснити",
+    ru: "Объяснить",
+    ar: "اشرح",
+    he: "הסבר",
+    hi: "समझाएँ",
+    bn: "ব্যাখ্যা",
+    ur: "وضاحت کریں",
+    id: "Jelaskan",
+    ms: "Jelaskan",
+    th: "อธิบาย",
+    vi: "Giải thích",
+    ja: "説明",
+    ko: "설명",
+    zh: "解释",
+  } as Record<string, string>,
+
+  analysing: {
+    en: "Analysing…",
+    it: "Analisi…",
+    fr: "Analyse…",
+    es: "Analizando…",
+    de: "Analysiere…",
+    pt: "Analisando…",
+    nl: "Analyseren…",
+    sv: "Analyserar…",
+    no: "Analyserer…",
+    da: "Analyserer…",
+    fi: "Analysoidaan…",
+    pl: "Analizuję…",
+    tr: "Analiz ediliyor…",
+    el: "Ανάλυση…",
+    cs: "Analyzuji…",
+    hu: "Elemzés…",
+    ro: "Analizez…",
+    uk: "Аналіз…",
+    ru: "Анализ…",
+    ar: "جارٍ التحليل…",
+    he: "מנתח…",
+    hi: "विश्लेषण…",
+    bn: "বিশ্লেষণ…",
+    ur: "تجزیہ…",
+    id: "Menganalisis…",
+    ms: "Menganalisis…",
+    th: "กำลังวิเคราะห์…",
+    vi: "Đang phân tích…",
+    ja: "分析中…",
+    ko: "분석 중…",
+    zh: "分析中…",
+  } as Record<string, string>,
+
+  edit: {
+    en: "Edit",
+    it: "Modifica",
+    fr: "Modifier",
+    es: "Editar",
+    de: "Bearbeiten",
+    pt: "Editar",
+    nl: "Bewerken",
+    sv: "Redigera",
+    no: "Rediger",
+    da: "Rediger",
+    fi: "Muokkaa",
+    pl: "Edytuj",
+    tr: "Düzenle",
+    el: "Επεξεργασία",
+    cs: "Upravit",
+    hu: "Szerkesztés",
+    ro: "Editează",
+    uk: "Редагувати",
+    ru: "Изменить",
+    ar: "تعديل",
+    he: "עריכה",
+    hi: "संपादित करें",
+    bn: "সম্পাদনা",
+    ur: "ترمیم کریں",
+    id: "Edit",
+    ms: "Edit",
+    th: "แก้ไข",
+    vi: "Chỉnh sửa",
+    ja: "編集",
+    ko: "편집",
+    zh: "编辑",
+  } as Record<string, string>,
+  pasteHere: {
+  en: "Paste your data here…",
+  it: "Incolla i tuoi dati qui…",
+  fr: "Collez vos données ici…",
+  es: "Pega tus datos aquí…",
+  de: "Daten hier einfügen…",
+  pt: "Cole seus dados aqui…",
+  nl: "Plak hier je gegevens…",
+  sv: "Klistra in dina data här…",
+  no: "Lim inn dataene dine her…",
+  da: "Indsæt dine data her…",
+  fi: "Liitä tietosi tähän…",
+  pl: "Wklej tutaj swoje dane…",
+  tr: "Verilerinizi buraya yapıştırın…",
+  el: "Επικολλήστε τα δεδομένα σας εδώ…",
+  cs: "Vložte zde svá data…",
+  hu: "Illessze be az adatait ide…",
+  ro: "Lipiți datele aici…",
+  uk: "Вставте свої дані тут…",
+  ru: "Вставьте данные здесь…",
+  ar: "الصق بياناتك هنا…",
+  he: "הדבק את הנתונים כאן…",
+  hi: "अपना डेटा यहाँ चिपकाएँ…",
+  bn: "আপনার ডেটা এখানে পেস্ট করুন…",
+  ur: "اپنا ڈیٹا یہاں پیسٹ کریں…",
+  id: "Tempel data Anda di sini…",
+  ms: "Tampal data anda di sini…",
+  th: "วางข้อมูลของคุณที่นี่…",
+  vi: "Dán dữ liệu của bạn vào đây…",
+  ja: "ここにデータを貼り付けてください…",
+  ko: "여기에 데이터를 붙여 넣으세요…",
+  zh: "在此粘贴你的数据…",
+} as Record<string, string>,
+processingVectors: {
+  en: "Processing numerical vectors…",
+  it: "Elaborazione dei vettori numerici…",
+  fr: "Traitement des vecteurs numériques…",
+  es: "Procesando vectores numéricos…",
+  de: "Verarbeitung numerischer Vektoren…",
+  pt: "Processando vetores numéricos…",
+  nl: "Numerieke vectoren verwerken…",
+  sv: "Bearbetar numeriska vektorer…",
+  no: "Behandler numeriske vektorer…",
+  da: "Behandler numeriske vektorer…",
+  fi: "Käsitellään numeerisia vektoreita…",
+  pl: "Przetwarzanie wektorów numerycznych…",
+  tr: "Sayısal vektörler işleniyor…",
+  el: "Επεξεργασία αριθμητικών διανυσμάτων…",
+  cs: "Zpracování numerických vektorů…",
+  hu: "Numerikus vektorok feldolgozása…",
+  ro: "Procesarea vectorilor numerici…",
+  uk: "Обробка числових векторів…",
+  ru: "Обработка числовых векторов…",
+  ar: "جارٍ معالجة المتجهات الرقمية…",
+  he: "מעבד וקטורים מספריים…",
+  hi: "संख्यात्मक वेक्टर संसाधित किए जा रहे हैं…",
+  bn: "সংখ্যাসূচক ভেক্টর প্রক্রিয়াকরণ…",
+  ur: "عددی ویکٹرز پر کارروائی جاری ہے…",
+  id: "Memproses vektor numerik…",
+  ms: "Memproses vektor berangka…",
+  th: "กำลังประมวลผลเวกเตอร์เชิงตัวเลข…",
+  vi: "Đang xử lý các vectơ số…",
+  ja: "数値ベクトルを処理中…",
+  ko: "숫자 벡터 처리 중…",
+  zh: "正在处理数值向量…",
+} as Record<string, string>,
+synthesis: {
+  en: "Synthesis",
+  it: "Sintesi",
+  fr: "Synthèse",
+  es: "Síntesis",
+  de: "Synthese",
+  pt: "Síntese",
+  nl: "Synthese",
+  sv: "Syntes",
+  no: "Syntese",
+  da: "Syntese",
+  fi: "Synteesi",
+  pl: "Synteza",
+  tr: "Sentez",
+  el: "Σύνθεση",
+  cs: "Syntéza",
+  hu: "Szintézis",
+  ro: "Sinteză",
+  uk: "Синтез",
+  ru: "Синтез",
+  ar: "التركيب",
+  he: "סינתזה",
+  hi: "संश्लेषण",
+  bn: "সংশ্লেষ",
+  ur: "ترکیب",
+  id: "Sintesis",
+  ms: "Sintesis",
+  th: "การสังเคราะห์",
+  vi: "Tổng hợp",
+  ja: "統合",
+  ko: "종합",
+  zh: "综合",
+} as Record<string, string>,
+
 };
+
 
 
 function tSection(header: string, lang?: string): string {
@@ -903,13 +1117,14 @@ function ElegantAnalysis({
 }
 
 
-function VisualAnalysisLoader() {
+function VisualAnalysisLoader({ uiLang }: { uiLang: string }) {
   return (
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-700 motion-reduce:animate-none">
       <div className="flex items-center gap-3">
         <div className="h-2 w-2 rounded-full bg-blue-500 animate-ping motion-reduce:animate-none" />
         <span className="text-[11px] font-bold tracking-[0.26em] text-blue-600/80 dark:text-blue-400/80">
-          Processing numerical vectors…
+          {UI_LABELS.processingVectors[uiLang] ?? UI_LABELS.processingVectors.en}
+
         </span>
       </div>
 
@@ -1474,6 +1689,11 @@ const [billing, setBilling] = useState<BillingStatus | null>(null);
   // ✅ NEW: Paywall state + subscribe flow
   const [paywall, setPaywall] = useState<null | { message: string; reason?: string }>(null);
   
+const [mounted, setMounted] = useState(false);
+
+useEffect(() => {
+  setMounted(true);
+}, []);
 
   // ✅ NEW: Magic link request (secondary CTA)
   const [magicOpen, setMagicOpen] = useState(false);
@@ -1496,6 +1716,17 @@ const [billing, setBilling] = useState<BillingStatus | null>(null);
   const hasFile = !!selectedFile;
   const hasResult = !!result;
   const inputChangedSinceRun = text.trim() !== lastRunInput.trim();
+const uiLang = useMemo(() => {
+  const fromResult = result?.ok ? result.lang : undefined;
+
+  const fromUrl =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("lang") ?? undefined
+      : undefined;
+
+  // Prefer backend language once we have it; fallback to URL lang; fallback to English.
+  return normalizeLang(fromResult || fromUrl || "en");
+}, [result]);
 
   // ✅ IMPORTANT: we no longer use this to disable the button.
   // We only use it to decide if explain() should run or show a message.
@@ -1814,15 +2045,21 @@ if (isGate) {
 const [subLoading, setSubLoading] = useState(false);
 
 async function goSubscribe() {
-  // ✅ Requirement #2: Subscribe button → email → magic link → click → Stripe checkout
+  // ✅ Subscribe button → email → magic link → click → Stripe checkout
+  setSubLoading(true);
+
   setMagicIntent("subscribe");
   setMagicOpen(true);
   setMagicNote("");
   setExplainBlockReason("");
 
-  // optional: focus the user mentally
   setMagicNote("Enter your email to receive a secure sign-in link.");
+
+  // if user opens subscribe flow, we consider "loading" done once modal is open
+  // (actual redirect happens after they click the link in email)
+  setTimeout(() => setSubLoading(false), 250);
 }
+
 
 
 
@@ -1905,7 +2142,7 @@ useEffect(() => {
     }
 
     if (overLimit) {
-      setExplainBlockReason(`Over limit: ${charCount.toLocaleString()} / ${MAX_INPUT_CHARS.toLocaleString()}`);
+setExplainBlockReason(`Over limit: ${fmtN(charCount)} / ${fmtN(MAX_INPUT_CHARS)}`);
       return;
     }
 
@@ -2039,7 +2276,8 @@ useEffect(() => {
       result.error_code === "RATE_LIMITED" || lastHttpStatus === 429
         ? "Tip: wait ~60 seconds, then retry."
         : result.error_code === "INPUT_TOO_LARGE" || lastHttpStatus === 413
-        ? `Tip: keep it under ${MAX_INPUT_CHARS.toLocaleString()} characters.`
+        ? `Tip: keep it under ${fmtN(MAX_INPUT_CHARS)} characters.`
+
         : result.error_code === "UPLOAD_TOO_LARGE"
         ? "Tip: upload a smaller file (or export fewer rows)."
         : result.error_code === "NO_MATCHING_SHEET"
@@ -2061,6 +2299,13 @@ useEffect(() => {
   const showEditToRerun = !hasFile && hasResult && !inputChangedSinceRun;
   const textareaLocked = hasFile;
 const chip = buildTrialChip(billing);
+  
+  if (!mounted) {
+  // Return a stable placeholder so server + client match.
+  // Keep it simple and deterministic (no Date/Math.random).
+  return <div className="min-h-screen" />;
+}
+
   return (
 <div
   className={cn(
@@ -2306,30 +2551,35 @@ const chip = buildTrialChip(billing);
                     ? "bg-white text-black border-transparent"
                     : "bg-black text-white border-transparent"
                 )}
-                title={overLimit ? `${charCount.toLocaleString()}/${MAX_INPUT_CHARS.toLocaleString()}` : undefined}
+title={overLimit ? `${fmtN(charCount)}/${fmtN(MAX_INPUT_CHARS)}` : undefined}
               >
                 {loading ? (
                   <>
                     <Loader2 size={14} className="animate-spin motion-reduce:animate-none" />
-                    <span className="tracking-[0.12em] text-[11px] font-black ">Analysing…</span>
+<span className="tracking-[0.12em] text-[11px] font-black ">
+  {UI_LABELS.analysing[uiLang] ?? UI_LABELS.analysing.en}
+</span>
                   </>
                 ) : overLimit ? (
                   <>
                     <AlertTriangle size={14} className="opacity-90" />
                     <span className="text-[13px] font-semibold tracking-[-0.01em]">
-                      Over limit {charCount.toLocaleString()} / {MAX_INPUT_CHARS.toLocaleString()}
+Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                     </span>
                   </>
                 ) : showEditToRerun ? (
                   <>
                     <Pencil size={14} className="opacity-80" />
-                    <span className="text-[14px] font-semibold tracking-[-0.01em]">Edit</span>
+<span className="text-[14px] font-semibold tracking-[-0.01em]">
+  {UI_LABELS.edit[uiLang] ?? UI_LABELS.edit.en}
+</span>
                   </>
                 ) : (
                   <>
                     <Sparkles size={14} className="opacity-80" />
-                    <span className="text-[13px] font-semibold tracking-[-0.01em]">Explain</span>
-                  </>
+<span className="text-[13px] font-semibold tracking-[-0.01em]">
+  {UI_LABELS.explain[uiLang] ?? UI_LABELS.explain.en}
+</span>                  </>
                 )}
               </button>
             </div>
@@ -2380,8 +2630,6 @@ const chip = buildTrialChip(billing);
           <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center md:items-start gap-10 md:gap-16">
 {/* Visual anchor — desktop only */}
 <div className="relative group/icon md:pt-1 hidden md:block">
-{/* Visual anchor — desktop only */}
-<div className="relative group/icon md:pt-1 hidden md:block">
   <div
     className={cn(
       "w-20 h-20 rounded-[2rem] flex items-center justify-center relative z-10",
@@ -2397,11 +2645,10 @@ const chip = buildTrialChip(billing);
       className={theme === "dark" ? "text-indigo-300" : "text-indigo-600"}
     />
   </div>
-</div>
-
 
   <div className="absolute inset-0 bg-indigo-500 blur-2xl opacity-15 scale-75 group-hover/icon:opacity-25 transition-opacity" />
 </div>
+
 
 
             <div className="flex-1 text-center md:text-left space-y-6">
@@ -2546,14 +2793,14 @@ const chip = buildTrialChip(billing);
   </span>
 
   {/* Subtitle row (centered, like Subscribe) */}
-<span
-  className={cn(
-    "mt-0.5 text-xs sm:text-[11px] font-medium opacity-70 text-center leading-tight",
-    theme === "dark" ? "text-white/70" : "text-zinc-600"
-  )}
->
-  3-day trial · No card
-</span>
+  <span
+    className={cn(
+      "mt-0.5 text-[13px] font-medium opacity-70 text-center",
+      theme === "dark" ? "text-white/70" : "text-zinc-600"
+    )}
+  >
+    3-day trial · No card
+  </span>
 </span>
 
 
@@ -2597,15 +2844,9 @@ const chip = buildTrialChip(billing);
             <span>Subscribe £4.99/mo</span>
             <ArrowRight size={18} className="opacity-85" />
           </span>
-<span
-  className={cn(
-    "mt-0.5 text-xs sm:text-[11px] font-medium opacity-70 text-center leading-tight",
-    theme === "dark" ? "text-white/70" : "text-zinc-600"
-  )}
->
-  Full access · Fair use
-</span>
-
+          <span className="mt-0.5 text-[13px] font-medium opacity-70">
+            Full access · Fair use
+          </span>
         </span>
       )}
     </span>
@@ -2822,7 +3063,10 @@ const chip = buildTrialChip(billing);
                   setMagicNote("");
                 }}
                 disabled={textareaLocked}
-                placeholder={textareaLocked ? "" : "Paste your data here…"}
+                placeholder={
+  textareaLocked ? "" : (UI_LABELS.pasteHere[uiLang] ?? UI_LABELS.pasteHere.en)
+}
+
                 className={cn(
                   "w-full bg-transparent outline-none resize-none",
                   "text-[14px] md:text-[15px] leading-relaxed font-medium tracking-[-0.012em]",
@@ -2886,13 +3130,14 @@ const chip = buildTrialChip(billing);
                       <>
                         <AlertTriangle size={16} className="opacity-90 shrink-0" />
                         <span className="text-[12px] font-semibold tracking-[-0.01em]">
-                          Over limit {charCount.toLocaleString()} / {MAX_INPUT_CHARS.toLocaleString()}
+Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                         </span>
                       </>
                     ) : showEditToRerun ? (
                       "Edit input to re-run"
                     ) : (
-                      "Explain"
+                     UI_LABELS.explain[uiLang] ?? UI_LABELS.explain.en
+
                     )}
                   </button>
 
@@ -2936,7 +3181,7 @@ const chip = buildTrialChip(billing);
               )}
             >
               {loading ? (
-                <VisualAnalysisLoader />
+                <VisualAnalysisLoader uiLang={uiLang} />
               ) : result?.ok ? (
                 <div>
                   <div className="flex justify-between items-center mb-10 print:mb-6">
@@ -2944,7 +3189,9 @@ const chip = buildTrialChip(billing);
                       <div className="w-9 h-9 rounded-2xl bg-blue-500 flex items-center justify-center print:hidden shadow-[0_18px_60px_rgba(59,130,246,0.35)]">
                         <BarChart3 size={16} className="text-white" />
                       </div>
-                      <h3 className="text-[22px] md:text-2xl font-black tracking-[-0.02em]">Synthesis</h3>
+<h3 className="text-[22px] md:text-2xl font-black tracking-[-0.02em]">
+  {UI_LABELS.synthesis[uiLang] ?? UI_LABELS.synthesis.en}
+</h3>
                     </div>
 
                     <ElegantPill level={evidence.level} lang={result.lang} />
@@ -3246,6 +3493,31 @@ const chip = buildTrialChip(billing);
         html.dark {
           color-scheme: dark;
         }
+
+        /* --- EMN: subtle fade/slide in for inline banners --- */
+@keyframes emnFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(1px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.emn-fade {
+  animation: emnFadeUp 260ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emn-fade {
+    animation: none !important;
+  }
+}
+
 
         /* Micro-interaction: gentle fade/slide for inline status messages */
         .emn-fade {
