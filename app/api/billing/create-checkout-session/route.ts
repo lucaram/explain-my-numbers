@@ -121,8 +121,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const priceId = process.env.STRIPE_PRICE_ID;
-    if (!priceId) throw new Error("Missing STRIPE_PRICE_ID.");
+    const priceId = process.env.STRIPE_PRICE_ID_MONTHLY;
+if (!priceId) throw new Error("Missing STRIPE_PRICE_ID_MONTHLY.");
 
     // ✅ You already have the customer id from the signed session cookie
     const customerId = sess.stripeCustomerId;

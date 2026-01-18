@@ -43,9 +43,8 @@ function customerKey(email: string) {
 }
 
 /** --------------------------
- * Rate limiting helpers (match your newer pattern)
+ * Rate limiting helpers
  * -------------------------- */
-
 function getClientIp(req: Request) {
   const xf = req.headers.get("x-forwarded-for");
   if (xf) {
@@ -62,7 +61,6 @@ function getClientIp(req: Request) {
   const vercel = req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim();
   if (vercel) return vercel;
 
-  // Fallback: stable per-client-ish bucket (avoid collapsing everyone into 127.0.0.1)
   const ua = (req.headers.get("user-agent") ?? "").slice(0, 300);
   const al = (req.headers.get("accept-language") ?? "").slice(0, 200);
   const key = createHash("sha256").update(`${ua}|${al}`).digest("hex").slice(0, 16);
@@ -71,7 +69,6 @@ function getClientIp(req: Request) {
 }
 
 function hashEmailKey(email: string) {
-  // non-reversible, stable, short key for Redis
   return createHash("sha256").update(email).digest("hex").slice(0, 24);
 }
 
@@ -81,6 +78,55 @@ async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
 
   const retryAfterSec = Math.max(1, Math.ceil((res.reset - Date.now()) / 1000));
   return { ok: false as const, retryAfterSec };
+}
+
+/**
+ * ✅ Any subscription ever disqualifies from trial.
+ */
+async function hasEverHadSubscription(stripe: Stripe, customerId: string) {
+  const subs = await stripe.subscriptions.list({
+    customer: customerId,
+    status: "all",
+    limit: 1,
+  });
+  return subs.data.length > 0;
+}
+
+/**
+ * ✅ Trial already used flag stored on Stripe customer metadata.
+ */
+function hasUsedTrial(customer: Stripe.Customer) {
+  const md = (customer.metadata ?? {}) as Record<string, string | undefined>;
+  return Boolean(md.emn_trial_used_at || md.emn_trial_used === "1");
+}
+
+/**
+ * ✅ IMPORTANT (Gemini-style fix, but safe):
+ * In local dev, ALWAYS generate the link to http://localhost:3000
+ * so cookies get set on localhost (not 127.0.0.1).
+ */
+function getCanonicalOriginForEmail(req: Request, appOrigins: string) {
+  const isDev =
+    process.env.NODE_ENV !== "production" ||
+    (appOrigins || "").includes("localhost:3000");
+
+  if (isDev) {
+    return "http://localhost:3000";
+  }
+
+  // Production: derive from headers (and normalize 127 -> localhost just in case)
+  const xfProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const xfHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const hostRaw = xfHost || req.headers.get("host")?.trim() || "";
+  const host = hostRaw.replace(/^127\.0\.0\.1(?=:\d+|$)/, "localhost");
+
+  if (host) {
+    const proto = xfProto || "https";
+    return `${proto}://${host}`;
+  }
+
+  // fallback: first APP_ORIGINS entry
+  return appOrigins.split(",").map((s) => s.trim()).filter(Boolean)[0] || "https://example.com";
 }
 
 export async function POST(req: Request) {
@@ -108,20 +154,20 @@ export async function POST(req: Request) {
     const redis = Redis.fromEnv();
 
     // --------------------------
-    // ✅ Rate limiting (anti-bot / anti-email-bombing)
+    // ✅ Rate limiting
     // --------------------------
     const ip = getClientIp(req);
 
     const ipRatelimit = new Ratelimit({
       redis,
-      limiter: Ratelimit.slidingWindow(10, "10 m"), // 10 requests / 10 minutes per IP
+      limiter: Ratelimit.slidingWindow(10, "10 m"),
       analytics: false,
       prefix: "emn:auth:trial:ip",
     });
 
     const emailRatelimit = new Ratelimit({
       redis,
-      limiter: Ratelimit.slidingWindow(3, "30 m"), // 3 requests / 30 minutes per email
+      limiter: Ratelimit.slidingWindow(3, "30 m"),
       analytics: false,
       prefix: "emn:auth:trial:email",
     });
@@ -149,11 +195,7 @@ export async function POST(req: Request) {
     if (!rlEmail.ok) {
       const retry = rlEmail.retryAfterSec ?? 1800;
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Too many requests for this email. Please try again later.",
-          error_code: "RATE_LIMITED",
-        },
+        { ok: false, error: "Too many requests for this email. Please try again later.", error_code: "RATE_LIMITED" },
         { status: 429, headers: { "Retry-After": String(retry) } }
       );
     }
@@ -183,7 +225,31 @@ export async function POST(req: Request) {
       await redis.set(customerKey(rawEmail), customer.id, { ex: 60 * 60 * 24 * 365 });
     }
 
-    // 2) Create a signed magic link token (trial starts ONLY on click)
+    // ✅ Trial eligibility
+    const everSubscribed = await hasEverHadSubscription(stripe, customer.id);
+    if (everSubscribed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Free trial is available only for first-time users. Please subscribe to continue.",
+          error_code: "TRIAL_NOT_ELIGIBLE",
+        },
+        { status: 409 }
+      );
+    }
+
+    if (hasUsedTrial(customer)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "You’ve already used your free trial. Please subscribe to continue.",
+          error_code: "TRIAL_ALREADY_USED",
+        },
+        { status: 409 }
+      );
+    }
+
+    // 2) Create signed magic link token
     const nonce = base64url(randomBytes(16));
     const nowSec = Math.floor(Date.now() / 1000);
     const expSec = nowSec + MAGIC_LINK_TTL_SECONDS;
@@ -202,9 +268,9 @@ export async function POST(req: Request) {
       MAGIC_LINK_SECRET
     );
 
-    const verifyUrl = `${APP_ORIGINS.split(",")[0].trim()}/api/auth/verify-magic-link?token=${encodeURIComponent(
-      token
-    )}`;
+    // ✅ Canonical origin (fixes localhost vs 127 cookie mismatch)
+    const origin = getCanonicalOriginForEmail(req, APP_ORIGINS);
+    const verifyUrl = `${origin}/api/auth/verify-magic-link?token=${encodeURIComponent(token)}`;
 
     // 3) Email the link
     await sendMagicLinkEmail({

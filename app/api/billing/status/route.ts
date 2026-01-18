@@ -6,6 +6,8 @@ import { Ratelimit } from "@upstash/ratelimit";
 import { createHash } from "crypto";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 function getClientIp(req: Request) {
   const xf = req.headers.get("x-forwarded-for");
@@ -50,20 +52,22 @@ export async function GET(req: Request) {
   }
 
   const ent = await getEntitlementFromRequest(req);
+  const nowSec = Math.floor(Date.now() / 1000);
 
-  // ✅ Frontend expects possible: "subscription_cancelled"
-  // We only map to that if ent exposes cancelAtPeriodEnd=true.
-  // (If entitlements.ts doesn't include it yet, this remains undefined and we won't map.)
   const cancelAtPeriodEnd =
     typeof (ent as any)?.cancelAtPeriodEnd === "boolean" ? (ent as any).cancelAtPeriodEnd : null;
 
   const currentPeriodEnd =
     typeof (ent as any)?.currentPeriodEnd === "number" ? (ent as any).currentPeriodEnd : null;
 
+  const cancelAt = typeof (ent as any)?.cancelAt === "number" ? (ent as any).cancelAt : null;
+
+  // ✅ Treat either cancel_at_period_end OR cancel_at (future) as cancelling
+  const isCancelling =
+    cancelAtPeriodEnd === true || (typeof cancelAt === "number" && cancelAt > nowSec);
+
   const mappedReason =
-    ent.reason === "subscription_active" && cancelAtPeriodEnd === true
-      ? "subscription_cancelled"
-      : ent.reason;
+    ent.reason === "subscription_active" && isCancelling ? "subscription_cancelled" : ent.reason;
 
   return NextResponse.json({
     ok: true,
@@ -71,9 +75,12 @@ export async function GET(req: Request) {
     reason: mappedReason,
     trialEndsAt: ent.trialEndsAt ?? null,
 
-    // ✅ extra optional fields (harmless, helps UI later)
+    // ✅ extra optional fields
     cancelAtPeriodEnd,
     currentPeriodEnd,
+    cancelAt,
+
     activeSubscriptionId: (ent as any)?.activeSubscriptionId ?? null,
+    chosenSubscriptionId: (ent as any)?.activeSubscriptionId ?? null,
   });
 }

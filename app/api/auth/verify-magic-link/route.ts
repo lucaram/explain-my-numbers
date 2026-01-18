@@ -7,7 +7,8 @@ import { createHmac, timingSafeEqual, createHash } from "crypto";
 
 export const runtime = "nodejs";
 
-const SESSION_COOKIE_NAME = "emn_session";
+// ✅ use env if present (MUST match entitlements.ts)
+const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "emn_session";
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 const TRIAL_DAYS = 3;
@@ -21,11 +22,7 @@ function base64urlToBuffer(s: string) {
 
 function base64url(input: Buffer | string) {
   const b = Buffer.isBuffer(input) ? input : Buffer.from(input);
-  return b
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
+  return b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function pickPrimaryOrigin(origins: string) {
@@ -35,12 +32,54 @@ function pickPrimaryOrigin(origins: string) {
     .filter(Boolean)[0];
 }
 
+/**
+ * ✅ Canonical origin:
+ * - In local/dev: ALWAYS return http://localhost:3000
+ * - In prod: derive from forwarded headers, fallback to APP_ORIGINS
+ */
+function getCanonicalOrigin(req: Request, fallbackOrigins: string) {
+  const envPrimary = pickPrimaryOrigin(fallbackOrigins) || "";
+
+  const isDev =
+    process.env.NODE_ENV !== "production" ||
+    envPrimary.includes("localhost:3000") ||
+    envPrimary.includes("127.0.0.1:3000");
+
+  if (isDev) return "http://localhost:3000";
+
+  const xfProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const xfHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const host = (xfHost || req.headers.get("host")?.trim() || "").trim();
+
+  if (host) {
+    const proto = xfProto || "https";
+    return `${proto}://${host}`;
+  }
+
+  return envPrimary || "https://example.com";
+}
+
+/**
+ * ✅ If user arrives on 127.0.0.1 in dev, immediately bounce to localhost
+ * so the cookie is always set on localhost.
+ */
+function maybeRedirectToCanonicalHost(req: Request, canonicalOrigin: string) {
+  const url = new URL(req.url);
+  const reqOrigin = url.origin;
+
+  if (reqOrigin !== canonicalOrigin) {
+    const redirected = NextResponse.redirect(`${canonicalOrigin}${url.pathname}${url.search}`, { status: 302 });
+    return redirected;
+  }
+
+  return null;
+}
+
 function verifySignedToken(token: string, magicSecret: string) {
   const parts = token.split(".");
   if (parts.length !== 2) return null;
 
   const [body, sig] = parts;
-
   const expectedSig = base64url(createHmac("sha256", magicSecret).update(body).digest());
 
   const a = Buffer.from(sig);
@@ -67,7 +106,6 @@ function nonceKey(nonce: string) {
 /** --------------------------
  * Rate limiting helpers (IP-only for verify endpoint)
  * -------------------------- */
-
 function getClientIp(req: Request) {
   const xf = req.headers.get("x-forwarded-for");
   if (xf) {
@@ -84,12 +122,26 @@ function getClientIp(req: Request) {
   const vercel = req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim();
   if (vercel) return vercel;
 
-  // fallback bucket (avoid collapsing everyone into 127.0.0.1)
   const ua = (req.headers.get("user-agent") ?? "").slice(0, 300);
   const al = (req.headers.get("accept-language") ?? "").slice(0, 200);
   const key = createHash("sha256").update(`${ua}|${al}`).digest("hex").slice(0, 16);
-
   return `unknown:${key}`;
+}
+
+type SessionPayload = {
+  v: 1;
+  email: string;
+  stripeCustomerId: string;
+  iat: number;
+  sid: string;
+  trialEndsAt?: number | null;
+  trialSubscriptionId?: string | null;
+};
+
+function signSessionCookie(session: SessionPayload, secret: string) {
+  const body = base64url(JSON.stringify(session));
+  const sig = base64url(createHmac("sha256", secret).update(body).digest());
+  return `${body}.${sig}`;
 }
 
 export async function GET(req: Request) {
@@ -98,7 +150,7 @@ export async function GET(req: Request) {
   const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
   const PRICE_ID = process.env.STRIPE_PRICE_ID_MONTHLY || "";
 
-  const origin = pickPrimaryOrigin(APP_ORIGINS);
+  const origin = getCanonicalOrigin(req, APP_ORIGINS);
 
   if (!MAGIC_LINK_SECRET || !origin) {
     return NextResponse.json(
@@ -107,12 +159,16 @@ export async function GET(req: Request) {
     );
   }
 
-  // ✅ Rate limit verify endpoint to reduce bot hammering / token spraying
-  // Keep it IP-only and generous to avoid blocking normal users.
+  // ✅ Force canonical host in dev so cookies always land on localhost
+  const bounce = maybeRedirectToCanonicalHost(req, origin);
+  if (bounce) return bounce;
+
   const redis = Redis.fromEnv();
+
+  // ✅ Rate limit verify endpoint
   const ipRatelimit = new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(30, "5 m"), // 30 requests / 5 minutes / IP
+    limiter: Ratelimit.slidingWindow(30, "5 m"),
     analytics: false,
     prefix: "emn:auth:verify:ip",
   });
@@ -126,7 +182,6 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const token = url.searchParams.get("token") ?? "";
-
     if (!token) return safeRedirect(origin, "/?magic=error&reason=missing_token");
 
     const payload = verifySignedToken(token, MAGIC_LINK_SECRET);
@@ -165,18 +220,18 @@ export async function GET(req: Request) {
     }
     await redis.set(nonceKey(payload.nonce), "1", { ex: MAGIC_NONCE_TTL_SECONDS });
 
-    // --- create session cookie now (valid for both flows) ---
-    const session = {
+    const baseSession: SessionPayload = {
       v: 1,
       email: payload.email,
       stripeCustomerId: payload.stripeCustomerId,
       iat: nowSec,
       sid: base64url(createHash("sha256").update(`${payload.stripeCustomerId}:${payload.email}`).digest()).slice(0, 22),
+      trialEndsAt: null,
+      trialSubscriptionId: null,
     };
 
-    const sessionB64 = base64url(JSON.stringify(session));
-    const sessionSig = base64url(createHmac("sha256", MAGIC_LINK_SECRET).update(sessionB64).digest());
-    const cookieValue = `${sessionB64}.${sessionSig}`;
+    // ✅ cookie secure should be false on http://localhost
+    const secure = origin.startsWith("https://");
 
     // --- intent routing ---
     if (payload.intent === "trial") {
@@ -186,30 +241,48 @@ export async function GET(req: Request) {
 
       const stripe = new Stripe(STRIPE_SECRET_KEY);
 
-      // Enforce "trial only once per Stripe customer"
-      const existing = await stripe.subscriptions.list({
+      const cust = (await stripe.customers.retrieve(payload.stripeCustomerId)) as Stripe.Customer | Stripe.DeletedCustomer;
+      if ((cust as any)?.deleted) {
+        return safeRedirect(origin, "/?magic=error&reason=bad_customer");
+      }
+      const customer = cust as Stripe.Customer;
+      const md = (customer.metadata ?? {}) as Record<string, string | undefined>;
+
+      const subs = await stripe.subscriptions.list({
         customer: payload.stripeCustomerId,
         status: "all",
         limit: 1,
       });
 
-      if (existing.data.length > 0) {
+      if (subs.data.length > 0) {
         const res = safeRedirect(origin, "/?magic=ok&intent=subscribe_required");
-
         res.cookies.set({
           name: SESSION_COOKIE_NAME,
-          value: cookieValue,
+          value: signSessionCookie(baseSession, MAGIC_LINK_SECRET),
           httpOnly: true,
           sameSite: "lax",
-          secure: origin.startsWith("https://"),
+          secure,
           path: "/",
           maxAge: SESSION_TTL_SECONDS,
         });
-
         return res;
       }
 
-      // Create trial subscription NOW (at click time)
+      const alreadyTrialled = Boolean(md.emn_trial_used_at || md.emn_trial_used === "1");
+      if (alreadyTrialled) {
+        const res = safeRedirect(origin, "/?magic=ok&intent=subscribe_required");
+        res.cookies.set({
+          name: SESSION_COOKIE_NAME,
+          value: signSessionCookie(baseSession, MAGIC_LINK_SECRET),
+          httpOnly: true,
+          sameSite: "lax",
+          secure,
+          path: "/",
+          maxAge: SESSION_TTL_SECONDS,
+        });
+        return res;
+      }
+
       const idempotencyKey = `emn:trial_on_click:${payload.stripeCustomerId}`;
 
       const sub = await stripe.subscriptions.create(
@@ -227,25 +300,42 @@ export async function GET(req: Request) {
         { idempotencyKey }
       );
 
+      await stripe.customers.update(
+        payload.stripeCustomerId,
+        {
+          metadata: {
+            ...md,
+            emn_trial_used: "1",
+            emn_trial_used_at: String(nowSec),
+          },
+        },
+        { idempotencyKey }
+      );
+
+      const sessionWithTrial: SessionPayload = {
+        ...baseSession,
+        trialEndsAt: typeof sub.trial_end === "number" ? sub.trial_end : null,
+        trialSubscriptionId: sub.id,
+      };
+
       const res = safeRedirect(origin, "/?magic=ok&intent=trial");
 
       res.cookies.set({
         name: SESSION_COOKIE_NAME,
-        value: cookieValue,
+        value: signSessionCookie(sessionWithTrial, MAGIC_LINK_SECRET),
         httpOnly: true,
         sameSite: "lax",
-        secure: origin.startsWith("https://"),
+        secure,
         path: "/",
         maxAge: SESSION_TTL_SECONDS,
       });
 
-      // Optional: give frontend a hint via a non-httpOnly cookie (safe)
       res.cookies.set({
         name: "emn_trial_ends",
         value: String(sub.trial_end ?? ""),
         httpOnly: false,
         sameSite: "lax",
-        secure: origin.startsWith("https://"),
+        secure,
         path: "/",
         maxAge: 60 * 60 * 24 * 7,
       });
@@ -281,7 +371,7 @@ export async function GET(req: Request) {
 
     res.cookies.set({
       name: SESSION_COOKIE_NAME,
-      value: cookieValue,
+      value: signSessionCookie(baseSession, MAGIC_LINK_SECRET),
       httpOnly: true,
       sameSite: "lax",
       secure: origin.startsWith("https://"),

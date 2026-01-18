@@ -62,9 +62,37 @@ type BillingStatus = {
     | "subscription_cancelled" // ✅ cancelled but still in period (still has access)
     | "no_entitlement"         // ✅ trial ended OR cancelled & expired OR never subscribed
     | "stripe_error";
+
   trialEndsAt: number | null;
+
+  // ✅ add these (your /api/billing/status already returns them)
+  cancelAtPeriodEnd?: boolean | null;
+  currentPeriodEnd?: number | null;
+  activeSubscriptionId?: string | null;
 };
 
+
+function normalizeBillingReason(raw: any): BillingStatus["reason"] {
+  const r = String(raw ?? "").trim().toLowerCase();
+
+  // ✅ Common variants -> your canonical union
+  if (r === "subscription_cancelled") return "subscription_cancelled";
+  if (r === "subscription_canceled") return "subscription_cancelled"; // US spelling (1 "l")
+  if (r === "subscription_canceling") return "subscription_cancelled";
+  if (r === "cancelled") return "subscription_cancelled";
+  if (r === "canceled") return "subscription_cancelled";
+
+  if (r === "subscription_active") return "subscription_active";
+  if (r === "trial_active") return "trial_active";
+
+  if (r === "no_entitlement") return "no_entitlement";
+  if (r === "missing_session") return "missing_session";
+  if (r === "invalid_session") return "invalid_session";
+  if (r === "no_customer") return "no_customer";
+
+  // Fallback (keep UI stable)
+  return "stripe_error";
+}
 
 
 
@@ -123,9 +151,7 @@ function buildTrialChip(b: BillingStatus | null) {
   // - subscription_active (subscribed)
   // - subscription_cancelled (cancelled but still in paid period)
   // - trial_active (optional: allow user to manage/cancel early)
-const showManage =
-  b.reason === "subscription_active" ||
-  b.reason === "subscription_cancelled";
+
 
   if (b.reason === "subscription_active") {
     return {
@@ -136,14 +162,25 @@ const showManage =
     };
   }
 
-  if (b.reason === "subscription_cancelled") {
-    return {
-      tone: "good" as const,
-      title: "Active",
-      sub: "Cancels at period end",
-      cta: "manage" as const,
-    };
-  }
+if (b.reason === "subscription_cancelled") {
+  const until =
+    typeof b.currentPeriodEnd === "number"
+      ? new Date(b.currentPeriodEnd * 1000).toLocaleDateString("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+})
+
+      : null;
+
+  return {
+    tone: "good" as const,
+    title: "Cancelling",
+    sub: until ? `Access until ${until}` : "Cancels at period end",
+    cta: "manage" as const,
+  };
+}
+
 
 if (b.reason === "trial_active" && typeof b.trialEndsAt === "number") {
   const d = daysLeftFromTrialEnd(b.trialEndsAt);
@@ -1963,13 +2000,19 @@ useEffect(() => {
   const checkoutStatus = subscribeParam || billingParam; // normalize
 
   // ✅ Checkout result (subscription)
-  if (checkoutStatus === "success") {
-    setPaywall(null);
-    setMagicNote("");
-    setMagicOpen(false);
-    setExplainBlockReason("Subscription active. You can continue.");
-    window.setTimeout(() => setExplainBlockReason(""), 2200);
-  } else if (checkoutStatus === "cancel") {
+// ✅ Checkout result (subscription)
+if (checkoutStatus === "success") {
+  setPaywall(null);
+  setMagicNote("");
+  setMagicOpen(false);
+
+  // ✅ NEW: refresh billing immediately so chip updates now
+  refreshBillingStatus().catch(() => {});
+
+  setExplainBlockReason("Subscription active. You can continue.");
+  window.setTimeout(() => setExplainBlockReason(""), 2200);
+}
+ else if (checkoutStatus === "cancel") {
     setExplainBlockReason("Checkout cancelled.");
     window.setTimeout(() => setExplainBlockReason(""), 1800);
   }
@@ -1982,11 +2025,16 @@ useEffect(() => {
       setMagicOpen(false);
       setExplainBlockReason("Free trial already used — subscription required after the trial period.");
       window.setTimeout(() => setExplainBlockReason(""), 2600);
-    } else if (intent === "trial") {
-      setMagicNote("Trial started. You can continue.");
-      setMagicOpen(false);
-      window.setTimeout(() => setMagicNote(""), 2200);
-    } else {
+   } else if (intent === "trial") {
+  setMagicNote("Trial started. You can continue.");
+  setMagicOpen(false);
+
+  // ✅ NEW: refresh billing immediately so chip shows trial_active + days left
+  refreshBillingStatus().catch(() => {});
+
+  window.setTimeout(() => setMagicNote(""), 2200);
+}
+ else {
       setMagicNote("Signed in. You can continue.");
       setMagicOpen(false);
       window.setTimeout(() => setMagicNote(""), 2200);
@@ -2023,7 +2071,7 @@ useEffect(() => {
     if (!forceRefresh && gateInFlight.current) return gateInFlight.current;
 
     gateInFlight.current = (async () => {
-      const res = await fetch("/api/gate", { method: "POST" });
+      const res = await fetch("/api/gate", { method: "POST",credentials: "include" });
       let data: GateResponse;
       try {
         data = (await res.json()) as GateResponse;
@@ -2080,6 +2128,7 @@ let res = await fetch(explainUrl, {
   method: init.method,
   body: init.body ?? null,
   headers: makeHeaders(init.headers, token),
+   credentials: "include"
 });
 
 
@@ -2098,6 +2147,7 @@ if (isGate) {
     method: init.method,
     body: init.body ?? null,
     headers: makeHeaders(init.headers, fresh),
+    credentials: "include"
   });
 }
 
@@ -2156,7 +2206,7 @@ async function goManage() {
     setPortalLoading(true);
     setExplainBlockReason("");
 
-    const r = await fetch("/api/billing/portal", { method: "POST" });
+    const r = await fetch("/api/billing/portal", { method: "POST",credentials: "include" });
     const body = await r.json().catch(() => null);
 
     if (!r.ok || !body?.ok || !body?.url) {
@@ -2190,24 +2240,88 @@ async function goSubscribe() {
 }
 
 
+async function goSubscribeDirect() {
+  try {
+    setSubLoading(true);
+    setExplainBlockReason("");
+
+    const r = await fetch("/api/billing/create-checkout-session", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    const j = await r.json().catch(() => ({}));
+
+    // ✅ If they have no session, fall back to email flow
+    if (r.status === 401) {
+      goSubscribe(); // opens your magic-link modal
+      return;
+    }
+
+    const url = j?.url || j?.checkoutUrl;
+    if (!r.ok || !url) {
+      setExplainBlockReason(j?.error || "Could not start checkout. Please try again.");
+      window.setTimeout(() => setExplainBlockReason(""), 2600);
+      return;
+    }
+
+    window.location.href = url;
+  } catch (e) {
+    console.error(e);
+    setExplainBlockReason("Could not start checkout. Please try again.");
+    window.setTimeout(() => setExplainBlockReason(""), 2600);
+  } finally {
+    setSubLoading(false);
+  }
+}
 
 
 
 async function refreshBillingStatus() {
   try {
-    const r = await fetch("/api/billing/status", { method: "GET" });
+    const r = await fetch("/api/billing/status", { method: "GET", cache: "no-store",credentials: "include" });
     const j = (await r.json().catch(() => null)) as any;
-    if (j?.ok) setBilling({ canExplain: !!j.canExplain, reason: j.reason, trialEndsAt: j.trialEndsAt ?? null });
+
+    if (!j?.ok) return;
+
+    const baseReason = normalizeBillingReason(j.reason);
+
+    // ✅ Frontend safeguard:
+    // If Stripe/backend says "subscription_active" but cancelAtPeriodEnd is true,
+    // show the "cancelling" UI state.
+    const derivedReason: BillingStatus["reason"] =
+      baseReason === "subscription_active" && j.cancelAtPeriodEnd === true
+        ? "subscription_cancelled"
+        : baseReason;
+
+    setBilling({
+      canExplain: !!j.canExplain,
+      reason: derivedReason,
+
+      trialEndsAt: typeof j.trialEndsAt === "number" ? j.trialEndsAt : null,
+
+      // ✅ extra fields for UI (“Cancelling · access until …”)
+      cancelAtPeriodEnd: typeof j.cancelAtPeriodEnd === "boolean" ? j.cancelAtPeriodEnd : null,
+      currentPeriodEnd: typeof j.currentPeriodEnd === "number" ? j.currentPeriodEnd : null,
+      activeSubscriptionId: typeof j.activeSubscriptionId === "string" ? j.activeSubscriptionId : null,
+    });
   } catch {
     // silent
   }
 }
 
+
+
+
+
 useEffect(() => {
   refreshBillingStatus();
-  // ✅ Always do a second refresh shortly after mount (cookie/session can settle)
-  setTimeout(() => refreshBillingStatus(), 350);
+  const t = setTimeout(() => refreshBillingStatus(), 350);
+  return () => clearTimeout(t);
 }, []);
+
 
 
 
@@ -2296,7 +2410,7 @@ setExplainBlockReason(`Over limit: ${fmtN(charCount)} / ${fmtN(MAX_INPUT_CHARS)}
         const fd = new FormData();
         fd.append("file", selectedFile);
         if (text.trim().length) fd.append("input", text);
-        res = await callExplainWithGate({ method: "POST", body: fd });
+        res = await callExplainWithGate({ method: "POST", body: fd, });
       } else {
         res = await callExplainWithGate({
           method: "POST",
@@ -2307,18 +2421,37 @@ setExplainBlockReason(`Over limit: ${fmtN(charCount)} / ${fmtN(MAX_INPUT_CHARS)}
 
       setLastHttpStatus(res.status);
 
-      // ✅ PAYWALL: detect 402 + NO_ENTITLEMENT
-      if (res.status === 402) {
-        const body = (await res.json().catch(() => null)) as any;
-        if (body?.error_code === "NO_ENTITLEMENT") {
-          setPaywall({
-            message: body?.error ?? "Your free trial has ended. Subscribe to continue.",
-            reason: body?.reason,
-          });
-          setResult(null);
-          return;
-        }
-      }
+// ✅ PAYWALL: detect 402 + NO_ENTITLEMENT
+if (res.status === 402) {
+  const body = (await res.json().catch(() => null)) as any;
+
+  if (body?.error_code === "NO_ENTITLEMENT") {
+    setPaywall({
+      message: body?.error ?? "Your free trial has ended. Subscribe to continue.",
+      reason: body?.reason,
+    });
+
+    // ✅ Force the NAV chip into “Access ended · Subscribe”
+    setBilling((prev) => ({
+      canExplain: false,
+      reason: "no_entitlement",
+      trialEndsAt: null,
+      cancelAtPeriodEnd: null,
+      currentPeriodEnd: null,
+      activeSubscriptionId: null,
+      // keep anything else if you later add fields
+      ...(prev ?? {}),
+    }));
+
+    setResult(null);
+
+    // ✅ Optional: also refresh from server in the background (keeps dates in sync if backend has them)
+    refreshBillingStatus().catch(() => {});
+
+    return;
+  }
+}
+
 
       let data: ExplainResult;
       try {
@@ -2545,12 +2678,14 @@ const chip = buildTrialChip(billing);
         </span>
       </div>
 
-     {/* CTA: Subscribe OR Manage */}
+    {/* CTA: Subscribe OR Manage */}
 {chip.cta === "subscribe" ? (
   <button
-    onClick={goSubscribe}
+    type="button"
+    onClick={chip.tone === "ended" ? goSubscribeDirect : goSubscribe}
     disabled={subLoading}
     className={cn(
+      "relative z-[100] pointer-events-auto", // ensure clickable
       "inline-flex items-center justify-center rounded-full px-3 py-1.5",
       "text-[11px] font-semibold tracking-tight",
       theme === "dark"
@@ -2564,9 +2699,11 @@ const chip = buildTrialChip(billing);
   </button>
 ) : chip.cta === "manage" ? (
   <button
+    type="button"
     onClick={goManage}
     disabled={portalLoading}
     className={cn(
+      "relative z-[100] pointer-events-auto", // ensure clickable
       "inline-flex items-center justify-center rounded-full px-3 py-1.5",
       "text-[11px] font-semibold tracking-tight",
       theme === "dark"
@@ -2580,6 +2717,7 @@ const chip = buildTrialChip(billing);
     {portalLoading ? "Opening…" : "Manage"}
   </button>
 ) : null}
+
 
     </div>
   )}
@@ -2863,147 +3001,140 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                 )}
               </div>
 
-              {/* Actions */}
-<div className="pt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
-  {/* ✅ 1) TRIAL FIRST (same size as subscribe) */}
-  <button
-    type="button"
-    onClick={() => {
-  setMagicIntent("trial");
-  setMagicOpen((v) => !v);
-  setMagicNote("");
-}}
+               {/* Actions */}
+              <div className="pt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                {/* ✅ Trial button ONLY when eligible/active */}
+{(billing?.reason === "trial_active" ||
+  billing?.reason === "missing_session" ||
+  billing?.reason === "invalid_session" ||
+  billing?.reason === "no_customer") && (           
+       <button
+                    type="button"
+                    onClick={() => {
+                      setMagicIntent("trial");
+                      setMagicOpen((v) => !v);
+                      setMagicNote("");
+                    }}
+                    className={cn(
+                      "relative w-full sm:w-auto overflow-hidden group rounded-full",
+                      "px-9 py-4", // ✅ match subscribe padding
+                      "min-h-[56px]", // ✅ equal height
+                      "sm:min-w-[260px]", // ✅ equal-ish desktop width
+                      "cursor-pointer",
+                      "transition-transform duration-300",
+                      "hover:scale-[1.08]",
+                      "active:scale-[0.93]",
+                      "motion-reduce:transform-none",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                      theme === "dark"
+                        ? [
+                            "bg-white/[0.04] text-white/92",
+                            "border border-white/12",
+                            "hover:bg-white/[0.06] hover:border-white/18",
+                            "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.55)]",
+                          ].join(" ")
+                        : [
+                            "bg-white text-zinc-900",
+                            "border border-zinc-200",
+                            "hover:bg-zinc-50 hover:border-zinc-300",
+                            "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.16)]",
+                          ].join(" ")
+                    )}
+                    title="Start your 3-day free trial (no card)."
+                  >
+                    {/* soft inner highlight */}
+                    <span
+                      className={cn(
+                        "pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500",
+                        theme === "dark"
+                          ? "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.18),transparent_55%)]"
+                          : "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.10),transparent_55%)]"
+                      )}
+                    />
 
-    className={cn(
-      "relative w-full sm:w-auto overflow-hidden group rounded-full",
-      "px-9 py-4", // ✅ match subscribe padding
-      "min-h-[56px]", // ✅ equal height
-      "sm:min-w-[260px]", // ✅ equal-ish desktop width
-      "cursor-pointer",
-      "transition-transform duration-300",
-"hover:scale-[1.08]",
-"active:scale-[0.93]",
-"motion-reduce:transform-none",
+                    {/* very subtle sweep */}
+                    <span
+                      className={cn(
+                        "pointer-events-none absolute -inset-y-6 -left-1/2 w-1/3 rotate-12",
+                        theme === "dark"
+                          ? "bg-gradient-to-r from-transparent via-white/10 to-transparent"
+                          : "bg-gradient-to-r from-transparent via-black/10 to-transparent",
+                        "translate-x-[-120%] group-hover:translate-x-[420%]",
+                        "transition-transform duration-[1200ms] ease-out"
+                      )}
+                    />
 
-      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-      theme === "dark"
-        ? [
-            // Premium dark glass (no weird purple)
-            "bg-white/[0.04] text-white/92",
-            "border border-white/12",
-            "hover:bg-white/[0.06] hover:border-white/18",
-            "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.55)]",
-          ].join(" ")
-        : [
-            // Premium light “soft white” (clean against black)
-            "bg-white text-zinc-900",
-            "border border-zinc-200",
-            "hover:bg-zinc-50 hover:border-zinc-300",
-            "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.16)]",
-          ].join(" ")
-    )}
-    title="Start your 3-day free trial (no card). Or restore access if your session expired."
-  >
-    {/* soft inner highlight */}
-    <span
-      className={cn(
-        "pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500",
-        theme === "dark"
-          ? "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.18),transparent_55%)]"
-          : "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.10),transparent_55%)]"
-      )}
-    />
+                    <span className="relative z-10 flex flex-col items-center leading-tight">
+                      <span className="flex items-center justify-center gap-3">
+                        <span className="text-[15px] font-semibold tracking-[-0.01em]">
+                          Please Start our free trial
+                        </span>
+                        <ArrowRight
+                          size={18}
+                          className={cn(
+                            "opacity-70 group-hover:opacity-90 transition-opacity",
+                            theme === "dark" ? "text-white/70" : "text-zinc-600"
+                          )}
+                          aria-hidden="true"
+                        />
+                      </span>
 
-    {/* very subtle sweep (less loud) */}
-    <span
-      className={cn(
-        "pointer-events-none absolute -inset-y-6 -left-1/2 w-1/3 rotate-12",
-        theme === "dark"
-  ? "bg-gradient-to-r from-transparent via-white/10 to-transparent"
-  : "bg-gradient-to-r from-transparent via-black/10 to-transparent",
+                      <span
+                        className={cn(
+                          "mt-0.5 text-[13px] font-medium opacity-70 text-center",
+                          theme === "dark" ? "text-white/70" : "text-zinc-600"
+                        )}
+                      >
+                        3-day trial · No card
+                      </span>
+                    </span>
+                  </button>
+                )}
 
-        "translate-x-[-120%] group-hover:translate-x-[420%]",
-        "transition-transform duration-[1200ms] ease-out"
-      )}
-    />
+                {/* ✅ Subscribe (always shown on paywall) */}
+                <button
+                  type="button"
+                  onClick={goSubscribe}
+                  disabled={subLoading}
+                  className={cn(
+                    "relative w-full sm:w-auto overflow-hidden rounded-full",
+                    "px-9 py-4",
+                    "min-h-[56px]",
+                    "sm:min-w-[260px]",
+                    "cursor-pointer",
+                    "transition-transform duration-300",
+                    "hover:scale-[1.08]",
+                    "active:scale-[0.93]",
+                    "motion-reduce:transform-none",
+                    "text-[15px] font-semibold tracking-[-0.01em]",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/35 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+                    theme === "dark"
+                      ? "bg-white text-black shadow-[0_18px_50px_-18px_rgba(255,255,255,0.22)] hover:opacity-95"
+                      : "bg-zinc-900 text-white shadow-[0_18px_50px_-18px_rgba(0,0,0,0.35)] hover:bg-black",
+                    subLoading && "opacity-90 cursor-wait"
+                  )}
+                >
+                  <span className="relative z-10 flex items-center justify-center gap-3">
+                    {subLoading ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin motion-reduce:animate-none" />
+                        <span>Redirecting…</span>
+                      </>
+                    ) : (
+                      <span className="flex flex-col items-center leading-tight">
+                        <span className="flex items-center gap-3">
+                          <span>Subscribe £4.99/mo</span>
+                          <ArrowRight size={18} className="opacity-85" />
+                        </span>
+                        <span className="mt-0.5 text-[13px] font-medium opacity-70">
+                          Full access · Fair use
+                        </span>
+                      </span>
+                    )}
+                  </span>
+                </button>
+              </div>
 
-<span className="relative z-10 flex flex-col items-center leading-tight">
-  {/* Title row (dot + title + arrow aligned on the same line) */}
-  <span className="flex items-center justify-center gap-3">
-
-    <span className="text-[15px] font-semibold tracking-[-0.01em]">
-      Please continue our free trial
-    </span>
-    <ArrowRight
-      size={18}
-      className={cn(
-        "opacity-70 group-hover:opacity-90 transition-opacity",
-        theme === "dark" ? "text-white/70" : "text-zinc-600"
-      )}
-      aria-hidden="true"
-    />
-  </span>
-
-  {/* Subtitle row (centered, like Subscribe) */}
-  <span
-    className={cn(
-      "mt-0.5 text-[13px] font-medium opacity-70 text-center",
-      theme === "dark" ? "text-white/70" : "text-zinc-600"
-    )}
-  >
-    3-day trial · No card
-  </span>
-</span>
-
-
-  </button>
-
-  {/* ✅ 2) SUBSCRIBE SECOND */}
-  <button
-    type="button"
-    onClick={goSubscribe}
-    disabled={subLoading}
-    className={cn(
-      "relative w-full sm:w-auto overflow-hidden rounded-full",
-      "px-9 py-4",
-      "min-h-[56px]",
-      "sm:min-w-[260px]", // match trial
-      "cursor-pointer",
-      "transition-transform duration-300",
-"hover:scale-[1.08]",
-"active:scale-[0.93]",
-"motion-reduce:transform-none",
-
-      "text-[15px] font-semibold tracking-[-0.01em]",
-      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/35 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-      theme === "dark"
-        ? "bg-white text-black shadow-[0_18px_50px_-18px_rgba(255,255,255,0.22)] hover:opacity-95"
-        : "bg-zinc-900 text-white shadow-[0_18px_50px_-18px_rgba(0,0,0,0.35)] hover:bg-black",
-      subLoading && "opacity-90 cursor-wait"
-    )}
-  >
-    <span className="relative z-10 flex items-center justify-center gap-3">
-      {subLoading? (
-        <>
-          <Loader2 size={18} className="animate-spin motion-reduce:animate-none" />
-          <span>Redirecting…</span>
-        </>
-      ) : (
-        
-        <span className="flex flex-col items-center leading-tight">
-          
-          <span className="flex items-center gap-3">
-            <span>Subscribe £4.99/mo</span>
-            <ArrowRight size={18} className="opacity-85" />
-          </span>
-          <span className="mt-0.5 text-[13px] font-medium opacity-70">
-            Full access · Fair use
-          </span>
-        </span>
-      )}
-    </span>
-  </button>
-</div>
 
             </div>
           </div>
