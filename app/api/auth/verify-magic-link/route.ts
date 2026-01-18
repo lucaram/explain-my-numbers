@@ -1,4 +1,3 @@
-// src/app/api/auth/verify-magic-link/route.ts
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { Redis } from "@upstash/redis";
@@ -7,135 +6,48 @@ import { createHmac, timingSafeEqual, createHash } from "crypto";
 
 export const runtime = "nodejs";
 
-// ✅ use env if present (MUST match entitlements.ts)
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "emn_session";
-const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
-
+const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const TRIAL_DAYS = 3;
-const MAGIC_NONCE_TTL_SECONDS = 15 * 60; // must match magic link TTL
+const MAGIC_NONCE_TTL_SECONDS = 15 * 60;
 
-function base64urlToBuffer(s: string) {
-  const pad = 4 - (s.length % 4 || 4);
-  const b64 = (s + "=".repeat(pad)).replace(/-/g, "+").replace(/_/g, "/");
-  return Buffer.from(b64, "base64");
-}
+/** --------------------------
+ * Helpers
+ * -------------------------- */
 
 function base64url(input: Buffer | string) {
   const b = Buffer.isBuffer(input) ? input : Buffer.from(input);
   return b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-function pickPrimaryOrigin(origins: string) {
-  return origins
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)[0];
-}
-
-/**
- * ✅ Canonical origin:
- * - In local/dev: ALWAYS return http://localhost:3000
- * - In prod: derive from forwarded headers, fallback to APP_ORIGINS
- */
-function getCanonicalOrigin(req: Request, fallbackOrigins: string) {
-  const envPrimary = pickPrimaryOrigin(fallbackOrigins) || "";
-
-  const isDev =
-    process.env.NODE_ENV !== "production" ||
-    envPrimary.includes("localhost:3000") ||
-    envPrimary.includes("127.0.0.1:3000");
-
-  if (isDev) return "http://localhost:3000";
-
-  const xfProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const xfHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-  const host = (xfHost || req.headers.get("host")?.trim() || "").trim();
-
-  if (host) {
-    const proto = xfProto || "https";
-    return `${proto}://${host}`;
-  }
-
-  return envPrimary || "https://example.com";
-}
-
-/**
- * ✅ If user arrives on 127.0.0.1 in dev, immediately bounce to localhost
- * so the cookie is always set on localhost.
- */
-function maybeRedirectToCanonicalHost(req: Request, canonicalOrigin: string) {
-  const url = new URL(req.url);
-  const reqOrigin = url.origin;
-
-  if (reqOrigin !== canonicalOrigin) {
-    const redirected = NextResponse.redirect(`${canonicalOrigin}${url.pathname}${url.search}`, { status: 302 });
-    return redirected;
-  }
-
-  return null;
-}
-
 function verifySignedToken(token: string, magicSecret: string) {
-  const parts = token.split(".");
-  if (parts.length !== 2) return null;
-
-  const [body, sig] = parts;
-  const expectedSig = base64url(createHmac("sha256", magicSecret).update(body).digest());
-
-  const a = Buffer.from(sig);
-  const b = Buffer.from(expectedSig);
-  if (a.length !== b.length) return null;
-  if (!timingSafeEqual(a, b)) return null;
-
-  const json = base64urlToBuffer(body).toString("utf8");
   try {
-    return JSON.parse(json) as any;
-  } catch {
-    return null;
-  }
+    const [body, sig] = token.split(".");
+    if (!body || !sig) return null;
+    const expectedSig = base64url(createHmac("sha256", magicSecret).update(body).digest());
+    if (!timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) return null;
+    const pad = "=".repeat((4 - (body.length % 4 || 4)) % 4);
+    const b64 = (body + pad).replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
+  } catch { return null; }
 }
 
-function safeRedirect(appOrigin: string, pathWithQuery: string) {
-  return NextResponse.redirect(`${appOrigin}${pathWithQuery}`, { status: 302 });
+function getCanonicalOrigin(req: Request, fallbackOrigins: string) {
+  const isDev = process.env.NODE_ENV === "development";
+  if (isDev) return "http://localhost:3000";
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
+  const proto = req.headers.get("x-forwarded-proto") || "https";
+  if (host.includes("localhost")) return "http://localhost:3000";
+  return `${proto}://${host}`.replace(/\/$/, "");
 }
 
-function nonceKey(nonce: string) {
-  return `emn:magic:nonce:${nonce}`;
-}
-
-/** --------------------------
- * Rate limiting helpers (IP-only for verify endpoint)
- * -------------------------- */
 function getClientIp(req: Request) {
-  const xf = req.headers.get("x-forwarded-for");
-  if (xf) {
-    const first = xf.split(",")[0]?.trim();
-    if (first) return first;
-  }
-
-  const xr = req.headers.get("x-real-ip");
-  if (xr) return xr.trim();
-
-  const cf = req.headers.get("cf-connecting-ip")?.trim();
-  if (cf) return cf;
-
-  const vercel = req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim();
-  if (vercel) return vercel;
-
-  const ua = (req.headers.get("user-agent") ?? "").slice(0, 300);
-  const al = (req.headers.get("accept-language") ?? "").slice(0, 200);
-  const key = createHash("sha256").update(`${ua}|${al}`).digest("hex").slice(0, 16);
-  return `unknown:${key}`;
+  return req.headers.get("x-forwarded-for")?.split(",")[0] || "unknown";
 }
 
 type SessionPayload = {
-  v: 1;
-  email: string;
-  stripeCustomerId: string;
-  iat: number;
-  sid: string;
-  trialEndsAt?: number | null;
-  trialSubscriptionId?: string | null;
+  v: 1; email: string; stripeCustomerId: string; iat: number; sid: string;
+  trialEndsAt?: number | null; trialSubscriptionId?: string | null;
 };
 
 function signSessionCookie(session: SessionPayload, secret: string) {
@@ -144,244 +56,118 @@ function signSessionCookie(session: SessionPayload, secret: string) {
   return `${body}.${sig}`;
 }
 
+/** --------------------------
+ * Main GET Route
+ * -------------------------- */
+
 export async function GET(req: Request) {
-  const MAGIC_LINK_SECRET = process.env.MAGIC_LINK_SECRET || "";
-  const APP_ORIGINS = process.env.APP_ORIGINS || "";
-  const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
-  const PRICE_ID = process.env.STRIPE_PRICE_ID_MONTHLY || "";
+  const { MAGIC_LINK_SECRET, STRIPE_SECRET_KEY, STRIPE_PRICE_ID_MONTHLY, APP_ORIGINS, NODE_ENV } = process.env;
+  const origin = getCanonicalOrigin(req, APP_ORIGINS || "");
+  const isDev = NODE_ENV === "development";
+  const url = new URL(req.url);
 
-  const origin = getCanonicalOrigin(req, APP_ORIGINS);
-
-  if (!MAGIC_LINK_SECRET || !origin) {
-    return NextResponse.json(
-      { ok: false, error: "Server misconfigured (missing MAGIC_LINK_SECRET or APP_ORIGINS)." },
-      { status: 500 }
-    );
+  if (isDev && url.origin.includes("127.0.0.1")) {
+    return NextResponse.redirect(`http://localhost:3000${url.pathname}${url.search}`);
   }
-
-  // ✅ Force canonical host in dev so cookies always land on localhost
-  const bounce = maybeRedirectToCanonicalHost(req, origin);
-  if (bounce) return bounce;
 
   const redis = Redis.fromEnv();
-
-  // ✅ Rate limit verify endpoint
-  const ipRatelimit = new Ratelimit({
-    redis,
-    limiter: Ratelimit.slidingWindow(30, "5 m"),
-    analytics: false,
-    prefix: "emn:auth:verify:ip",
-  });
-
-  const ip = getClientIp(req);
-  const rl = await ipRatelimit.limit(`ip:${ip}`);
-  if (!rl.success) {
-    return safeRedirect(origin, "/?magic=error&reason=rate_limited");
-  }
+  const stripe = new Stripe(STRIPE_SECRET_KEY!);
 
   try {
-    const url = new URL(req.url);
-    const token = url.searchParams.get("token") ?? "";
-    if (!token) return safeRedirect(origin, "/?magic=error&reason=missing_token");
+    const token = url.searchParams.get("token") || "";
 
-    const payload = verifySignedToken(token, MAGIC_LINK_SECRET);
-    if (!payload) return safeRedirect(origin, "/?magic=error&reason=bad_signature");
+    // 1) Rate Limit
+    const ratelimit = new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(20, "5 m"), prefix: "emn:auth:verify" });
+    const rl = await ratelimit.limit(getClientIp(req));
+    if (!rl.success) return NextResponse.redirect(`${origin}/?magic=error&reason=rate_limited`);
 
-    if (payload.typ !== "magic_link" || payload.v !== 1) {
-      return safeRedirect(origin, "/?magic=error&reason=bad_payload");
-    }
-
+    // 2) Verify Token
+    const payload = verifySignedToken(token, MAGIC_LINK_SECRET!);
     const nowSec = Math.floor(Date.now() / 1000);
 
-    if (typeof payload.exp !== "number" || nowSec > payload.exp) {
-      return safeRedirect(origin, "/?magic=error&reason=expired");
+    if (!payload || payload.exp < nowSec || payload.typ !== "magic_link") {
+      return NextResponse.redirect(`${origin}/?magic=error&reason=invalid_token`);
     }
 
-    if (typeof payload.email !== "string" || !payload.email.includes("@")) {
-      return safeRedirect(origin, "/?magic=error&reason=bad_email");
-    }
-
-    if (typeof payload.stripeCustomerId !== "string" || !payload.stripeCustomerId.startsWith("cus_")) {
-      return safeRedirect(origin, "/?magic=error&reason=bad_customer");
-    }
-
-    if (payload.intent !== "trial" && payload.intent !== "subscribe") {
-      return safeRedirect(origin, "/?magic=error&reason=bad_intent");
-    }
-
-    if (typeof payload.nonce !== "string" || payload.nonce.length < 10) {
-      return safeRedirect(origin, "/?magic=error&reason=bad_nonce");
-    }
-
-    // --- nonce replay protection ---
-    const alreadyUsed = await redis.get(nonceKey(payload.nonce));
-    if (alreadyUsed) {
-      return safeRedirect(origin, "/?magic=error&reason=link_used");
-    }
-    await redis.set(nonceKey(payload.nonce), "1", { ex: MAGIC_NONCE_TTL_SECONDS });
+    // 3) Nonce (One-time use)
+    const nonceKey = `emn:magic:nonce:${payload.nonce}`;
+    const used = await redis.get(nonceKey);
+    if (used) return NextResponse.redirect(`${origin}/?magic=error&reason=link_used`);
+    await redis.set(nonceKey, "1", { ex: MAGIC_NONCE_TTL_SECONDS });
 
     const baseSession: SessionPayload = {
-      v: 1,
-      email: payload.email,
-      stripeCustomerId: payload.stripeCustomerId,
-      iat: nowSec,
-      sid: base64url(createHash("sha256").update(`${payload.stripeCustomerId}:${payload.email}`).digest()).slice(0, 22),
-      trialEndsAt: null,
-      trialSubscriptionId: null,
+      v: 1, email: payload.email, stripeCustomerId: payload.stripeCustomerId,
+      iat: nowSec, sid: createHash("sha256").update(payload.nonce).digest("hex").slice(0, 12),
     };
 
-    // ✅ cookie secure should be false on http://localhost
-    const secure = origin.startsWith("https://");
-
-    // --- intent routing ---
+    // --- TRIAL Intent ---
     if (payload.intent === "trial") {
-      if (!STRIPE_SECRET_KEY || !PRICE_ID) {
-        return safeRedirect(origin, "/?magic=error&reason=server_config");
-      }
-
-      const stripe = new Stripe(STRIPE_SECRET_KEY);
-
-      const cust = (await stripe.customers.retrieve(payload.stripeCustomerId)) as Stripe.Customer | Stripe.DeletedCustomer;
-      if ((cust as any)?.deleted) {
-        return safeRedirect(origin, "/?magic=error&reason=bad_customer");
-      }
-      const customer = cust as Stripe.Customer;
+      const customer = (await stripe.customers.retrieve(payload.stripeCustomerId)) as Stripe.Customer;
       const md = (customer.metadata ?? {}) as Record<string, string | undefined>;
+      const subs = await stripe.subscriptions.list({ customer: payload.stripeCustomerId, limit: 1 });
 
-      const subs = await stripe.subscriptions.list({
+      if (subs.data.length > 0 || md.emn_trial_used === "1") {
+        const res = NextResponse.redirect(`${origin}/?magic=ok&intent=subscribe_required`);
+        setAuthCookie(res, baseSession, MAGIC_LINK_SECRET!, isDev);
+        return res;
+      }
+
+      // FIXED: Unique Idempotency Keys
+      const sub = await stripe.subscriptions.create({
         customer: payload.stripeCustomerId,
-        status: "all",
-        limit: 1,
-      });
+        items: [{ price: STRIPE_PRICE_ID_MONTHLY!, quantity: 1 }],
+        trial_period_days: TRIAL_DAYS,
+        cancel_at_period_end: true,
+      }, { idempotencyKey: `sub_${payload.nonce}` });
 
-      if (subs.data.length > 0) {
-        const res = safeRedirect(origin, "/?magic=ok&intent=subscribe_required");
-        res.cookies.set({
-          name: SESSION_COOKIE_NAME,
-          value: signSessionCookie(baseSession, MAGIC_LINK_SECRET),
-          httpOnly: true,
-          sameSite: "lax",
-          secure,
-          path: "/",
-          maxAge: SESSION_TTL_SECONDS,
-        });
-        return res;
-      }
+      await stripe.customers.update(payload.stripeCustomerId, { 
+        metadata: { ...md, emn_trial_used: "1", emn_trial_used_at: String(nowSec) } 
+      }, { idempotencyKey: `cust_${payload.nonce}` });
 
-      const alreadyTrialled = Boolean(md.emn_trial_used_at || md.emn_trial_used === "1");
-      if (alreadyTrialled) {
-        const res = safeRedirect(origin, "/?magic=ok&intent=subscribe_required");
-        res.cookies.set({
-          name: SESSION_COOKIE_NAME,
-          value: signSessionCookie(baseSession, MAGIC_LINK_SECRET),
-          httpOnly: true,
-          sameSite: "lax",
-          secure,
-          path: "/",
-          maxAge: SESSION_TTL_SECONDS,
-        });
-        return res;
-      }
-
-      const idempotencyKey = `emn:trial_on_click:${payload.stripeCustomerId}`;
-
-      const sub = await stripe.subscriptions.create(
-        {
-          customer: payload.stripeCustomerId,
-          items: [{ price: PRICE_ID, quantity: 1 }],
-          trial_period_days: TRIAL_DAYS,
-          cancel_at_period_end: true,
-          metadata: {
-            product: "explain_my_numbers",
-            phase: "trial_no_card",
-            created_by: "magic_link_click",
-          },
-        },
-        { idempotencyKey }
-      );
-
-      await stripe.customers.update(
-        payload.stripeCustomerId,
-        {
-          metadata: {
-            ...md,
-            emn_trial_used: "1",
-            emn_trial_used_at: String(nowSec),
-          },
-        },
-        { idempotencyKey }
-      );
-
-      const sessionWithTrial: SessionPayload = {
-        ...baseSession,
-        trialEndsAt: typeof sub.trial_end === "number" ? sub.trial_end : null,
-        trialSubscriptionId: sub.id,
-      };
-
-      const res = safeRedirect(origin, "/?magic=ok&intent=trial");
-
-      res.cookies.set({
-        name: SESSION_COOKIE_NAME,
-        value: signSessionCookie(sessionWithTrial, MAGIC_LINK_SECRET),
-        httpOnly: true,
-        sameSite: "lax",
-        secure,
-        path: "/",
-        maxAge: SESSION_TTL_SECONDS,
-      });
-
+      const res = NextResponse.redirect(`${origin}/?magic=success&intent=trial`);
+      setAuthCookie(res, { ...baseSession, trialEndsAt: sub.trial_end, trialSubscriptionId: sub.id }, MAGIC_LINK_SECRET!, isDev);
+      
+      // Secondary cookie for frontend countdowns
       res.cookies.set({
         name: "emn_trial_ends",
-        value: String(sub.trial_end ?? ""),
+        value: String(sub.trial_end),
         httpOnly: false,
+        secure: !isDev,
         sameSite: "lax",
-        secure,
         path: "/",
-        maxAge: 60 * 60 * 24 * 7,
+        maxAge: SESSION_TTL_SECONDS,
       });
 
       return res;
     }
 
-    // intent === "subscribe"
-    if (!STRIPE_SECRET_KEY || !PRICE_ID) {
-      return safeRedirect(origin, "/?magic=error&reason=server_config");
-    }
-
-    const stripe = new Stripe(STRIPE_SECRET_KEY);
-
+    // --- SUBSCRIBE Intent ---
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: payload.stripeCustomerId,
-      line_items: [{ price: PRICE_ID, quantity: 1 }],
-      allow_promotion_codes: true,
+      line_items: [{ price: STRIPE_PRICE_ID_MONTHLY!, quantity: 1 }],
       success_url: `${origin}/?subscribe=success`,
       cancel_url: `${origin}/?subscribe=cancel`,
-      metadata: {
-        product: "explain_my_numbers",
-        created_by: "magic_link_click",
-      },
     });
 
-    if (!checkout.url) {
-      return safeRedirect(origin, "/?magic=error&reason=no_checkout_url");
-    }
-
-    const res = NextResponse.redirect(checkout.url, { status: 303 });
-
-    res.cookies.set({
-      name: SESSION_COOKIE_NAME,
-      value: signSessionCookie(baseSession, MAGIC_LINK_SECRET),
-      httpOnly: true,
-      sameSite: "lax",
-      secure: origin.startsWith("https://"),
-      path: "/",
-      maxAge: SESSION_TTL_SECONDS,
-    });
-
+    const res = NextResponse.redirect(checkout.url!, { status: 303 });
+    setAuthCookie(res, baseSession, MAGIC_LINK_SECRET!, isDev);
     return res;
+
   } catch (e) {
-    console.error("verify-magic-link failed:", e);
-    return safeRedirect(origin, "/?magic=error&reason=server");
+    console.error("VERIFY_ERROR:", e);
+    return NextResponse.redirect(`${origin}/?magic=error&reason=server`);
   }
+}
+
+function setAuthCookie(res: NextResponse, session: SessionPayload, secret: string, devMode: boolean) {
+  res.cookies.set({
+    name: SESSION_COOKIE_NAME,
+    value: signSessionCookie(session, secret),
+    httpOnly: true,
+    secure: !devMode,
+    sameSite: "lax",
+    path: "/",
+    maxAge: SESSION_TTL_SECONDS,
+  });
 }

@@ -106,15 +106,20 @@ function hasUsedTrial(customer: Stripe.Customer) {
  * so cookies get set on localhost (not 127.0.0.1).
  */
 function getCanonicalOriginForEmail(req: Request, appOrigins: string) {
-  const isDev =
-    process.env.NODE_ENV !== "production" ||
-    (appOrigins || "").includes("localhost:3000");
+  // ✅ If APP_ORIGINS contains localhost, we are explicitly in local dev.
+  const firstOrigin =
+    (appOrigins || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)[0] || "";
 
-  if (isDev) {
+  const isLocalDev = firstOrigin.includes("localhost:3000");
+
+  if (isLocalDev) {
     return "http://localhost:3000";
   }
 
-  // Production: derive from headers (and normalize 127 -> localhost just in case)
+  // Production / preview: derive from request headers first
   const xfProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
   const xfHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
   const hostRaw = xfHost || req.headers.get("host")?.trim() || "";
@@ -122,12 +127,13 @@ function getCanonicalOriginForEmail(req: Request, appOrigins: string) {
 
   if (host) {
     const proto = xfProto || "https";
-    return `${proto}://${host}`;
+    return `${proto}://${host}`.replace(/\/$/, "");
   }
 
-  // fallback: first APP_ORIGINS entry
-  return appOrigins.split(",").map((s) => s.trim()).filter(Boolean)[0] || "https://example.com";
+  // Fallback: first APP_ORIGINS entry
+  return (firstOrigin || "https://example.com").replace(/\/$/, "");
 }
+
 
 export async function POST(req: Request) {
   try {

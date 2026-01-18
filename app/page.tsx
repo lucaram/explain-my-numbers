@@ -2329,17 +2329,16 @@ useEffect(() => {
 
   /** ✅ Secondary CTA: request a new magic link (start trial / re-auth) */
   async function handleSendMagicLink() {
-  try {
-    setMagicBusy(true);
-    setMagicNote("");
+  setMagicBusy(true);
+  setMagicNote("");
 
+  try {
     const email = magicEmail.trim().toLowerCase();
     if (!email || !email.includes("@")) {
       setMagicNote("Enter a valid email address.");
       return;
     }
 
-    // ✅ Choose backend route based on intent
     const endpoint =
       magicIntent === "trial"
         ? "/api/auth/start-trial"
@@ -2353,23 +2352,29 @@ useEffect(() => {
 
     const body = await r.json().catch(() => null);
 
+    // 🟡 Graceful handling of known backend responses
     if (!r.ok || !body?.ok) {
-      throw new Error(body?.error || "Could not send magic link.");
+      setMagicNote(
+        body?.error || "Could not send magic link. Please try again."
+      );
+      return;
     }
 
-    // ✅ Better UX message based on flow
+    // ✅ Success UX
     setMagicNote(
       magicIntent === "trial"
-        ? "Magic link sent. Click it to start your 3-day trial."
-        : "Magic link sent. Click it to continue to Stripe Checkout."
+        ? "Magic link sent. Check your email to start your 3-day trial."
+        : "Magic link sent. Check your email to continue to checkout."
     );
-  } catch (e) {
-    console.error(e);
-    setMagicNote("Could not send magic link. Please try again.");
+  } catch (err) {
+    // 🔴 Only truly unexpected errors land here
+    console.error("Unexpected magic link error:", err);
+    setMagicNote("Something went wrong. Please try again later.");
   } finally {
     setMagicBusy(false);
   }
 }
+
 
 
   /** ✅ Explain is ALWAYS clickable; we enforce validation inside. */
