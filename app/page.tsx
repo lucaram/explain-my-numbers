@@ -292,6 +292,8 @@ function formatScoreToPercent(note: string) {
   });
 }
 
+
+
 /**
  * ✅ Lightweight i18n for section headers (no library)
  * - Backend is authoritative: we use result.lang (NOT navigator.language)
@@ -326,6 +328,16 @@ if (base === "zh") {
 }
 
   return base;
+}
+
+function detectBrowserLang(): string {
+  if (typeof window === "undefined") return "en";
+  const langs = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language]).filter(
+    Boolean
+  ) as string[];
+
+  // pick first preferred language
+  return normalizeLang(langs[0] || "en");
 }
 
 /**
@@ -1812,6 +1824,11 @@ function PrivacyModalContent({ theme }: { theme: Theme }) {
 
 
 export default function HomePage() {
+  const [browserLang, setBrowserLang] = useState<string>("en");
+
+useEffect(() => {
+  setBrowserLang(detectBrowserLang());
+}, []);
   const [theme, setTheme] = useState<Theme>("light");
   const [text, setText] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
@@ -1867,9 +1884,10 @@ const uiLang = useMemo(() => {
       ? new URLSearchParams(window.location.search).get("lang") ?? undefined
       : undefined;
 
-  // Prefer backend language once we have it; fallback to URL lang; fallback to English.
-  return normalizeLang(fromResult || fromUrl || "en");
-}, [result]);
+  // Priority: backend → URL override → browser → English
+  return normalizeLang(fromResult || fromUrl || browserLang || "en");
+}, [result, browserLang]);
+
 
   // ✅ IMPORTANT: we no longer use this to disable the button.
   // We only use it to decide if explain() should run or show a message.
@@ -2119,9 +2137,12 @@ const langParam =
     ? new URLSearchParams(window.location.search).get("lang")
     : null;
 
-const explainUrl = langParam
-  ? `/api/explain?lang=${encodeURIComponent(langParam)}`
-  : "/api/explain";
+// Prefer sending the computed UI language to the backend
+const explainUrl =
+  uiLang && uiLang !== "en"
+    ? `/api/explain?lang=${encodeURIComponent(uiLang)}`
+    : "/api/explain";
+
 
     
 let res = await fetch(explainUrl, {
@@ -2676,11 +2697,28 @@ const chip = buildTrialChip(billing);
           )}
           aria-hidden="true"
         />
-        <span className="font-bold">{chip.title}</span>
-        <span className={cn(theme === "dark" ? "text-white/55" : "text-zinc-500")}>·</span>
-        <span className={cn(theme === "dark" ? "text-white/70" : "text-zinc-600")}>
-          {chip.sub}
-        </span>
+{/* Title always visible */}
+<span className="font-bold">{chip.title}</span>
+
+{/* Desktop-only: dot + subtitle */}
+<span
+  className={cn(
+    theme === "dark" ? "text-white/55" : "text-zinc-500",
+    "hidden sm:inline"
+  )}
+>
+  ·
+</span>
+
+<span
+  className={cn(
+    theme === "dark" ? "text-white/70" : "text-zinc-600",
+    "hidden sm:inline"
+  )}
+>
+  {chip.sub}
+</span>
+
       </div>
 
     {/* CTA: Subscribe OR Manage */}
@@ -3132,7 +3170,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                           <ArrowRight size={18} className="opacity-85" />
                         </span>
                         <span className="mt-0.5 text-[13px] font-medium opacity-70">
-                          Full access · Fair use
+                          Full access · Fair use · Cancel anytime
                         </span>
                       </span>
                     )}
