@@ -2,7 +2,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-
+import PrivacyModalContent from "@/components/PrivacyModalContent";
+import { getPaywallCopy } from "@/lib/i18n/paywallLabels";
 import {
   Copy,
   RotateCcw,
@@ -1610,215 +1611,7 @@ function FileChip({ file, theme, onRemove }: { file: File; theme: Theme; onRemov
 }
 
 /** ✅ Privacy modal content (minimal + premium, no external file) */
-function PrivacyModalContent({ theme }: { theme: Theme }) {
-  return (
-    <div className="space-y-8">
-      {/* Hero section with gradient emphasis */}
-      <div className="space-y-3">
-        <div
-          className="inline-flex items-center gap-2 px-3 py-1 rounded-full border backdrop-blur-sm animate-in fade-in slide-in-from-top-2 duration-500"
-          style={{
-            background:
-              theme === "dark"
-                ? "linear-gradient(135deg, rgba(59,130,246,0.08), rgba(16,185,129,0.08))"
-                : "linear-gradient(135deg, rgba(59,130,246,0.06), rgba(16,185,129,0.06))",
-            borderColor: theme === "dark" ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
-          }}
-        >
-          <span
-            className={cn(
-              "h-1.5 w-1.5 rounded-full animate-pulse",
-              theme === "dark"
-                ? "bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.5)]"
-                : "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]"
-            )}
-          />
-          <span className="text-[9px] font-black uppercase tracking-[0.32em] bg-gradient-to-r from-blue-600 to-emerald-600 dark:from-blue-400 dark:to-emerald-400 bg-clip-text text-transparent">
-            Zero Retention
-          </span>
-        </div>
 
-        <h2
-          className={cn(
-            "text-[28px] md:text-[32px] font-[950] tracking-[-0.04em] leading-[1.1]",
-            "animate-in fade-in slide-in-from-top-3 duration-700"
-          )}
-          style={{ animationDelay: "100ms" }}
-        >
-          <span className={cn("inline", theme === "dark" ? "text-white" : "text-black")}>Privacy.</span>{" "}
-          <span className="inline text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-500 bg-[length:200%_auto]">
-            Built in.
-          </span>
-        </h2>
-
-        <p
-          className={cn(
-            "text-[15px] md:text-[16px] font-medium leading-[1.7] tracking-[-0.015em]",
-            "animate-in fade-in slide-in-from-top-4 duration-700",
-            theme === "dark" ? "text-white/70" : "text-zinc-600"
-          )}
-          style={{ animationDelay: "200ms" }}
-        >
-          Designed for trust — without compromise.
-        </p>
-      </div>
-
-      {/* Key message with emphasis */}
-      <div
-        className={cn(
-          "rounded-[1.75rem] border p-6 md:p-7 relative overflow-hidden",
-          "animate-in fade-in zoom-in-95 duration-700",
-          "transition-all duration-300 hover:shadow-lg",
-          theme === "dark"
-            ? "bg-gradient-to-br from-white/[0.03] to-white/[0.01] border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.3)]"
-            : "bg-gradient-to-br from-blue-50/40 to-emerald-50/30 border-blue-200/40 shadow-[0_20px_50px_rgba(59,130,246,0.08)]"
-        )}
-        style={{ animationDelay: "300ms" }}
-      >
-        {/* Subtle gradient overlay */}
-        <div
-          className="absolute inset-0 opacity-40 pointer-events-none"
-          style={{
-            background:
-              theme === "dark"
-                ? "radial-gradient(600px circle at 30% 20%, rgba(59,130,246,0.08), transparent 60%)"
-                : "radial-gradient(600px circle at 30% 20%, rgba(59,130,246,0.12), transparent 60%)",
-          }}
-        />
-
-        <div className="relative space-y-4">
-          <div className="flex items-start gap-3">
-            <div
-              className={cn(
-                "mt-1 flex-shrink-0 w-10 h-10 rounded-2xl flex items-center justify-center transition-transform duration-300 hover:scale-110 hover:rotate-12",
-                theme === "dark" ? "bg-blue-500/10 text-blue-300" : "bg-blue-500/10 text-blue-700"
-              )}
-            >
-              <Shield size={18} />
-            </div>
-
-            <div className="space-y-2">
-              <p
-                className={cn(
-                  "text-[15px] md:text-[16px] leading-[1.75] font-medium tracking-[-0.015em]",
-                  theme === "dark" ? "text-white/90" : "text-zinc-800"
-                )}
-              >
-                Your data is processed securely, then <span className="font-bold">immediately discarded</span>.
-              </p>
-
-              <p
-                className={cn(
-                  "text-[14px] leading-[1.7] font-medium tracking-[-0.01em]",
-                  theme === "dark" ? "text-white/75" : "text-zinc-700"
-                )}
-              >
-                We don't store uploads, pasted text, results, or derived insights.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Feature grid with icons */}
-      <div
-        className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-700"
-        style={{ animationDelay: "400ms" }}
-      >
-        {[
-          { icon: "🔒", label: "In-memory processing", desc: "Files are handled in session only" },
-          { icon: "🚫", label: "No retention", desc: "No databases, no history" },
-          { icon: "🤖", label: "No training", desc: "Data not used for training" },
-          { icon: "💎", label: "No resale", desc: "Your data stays yours" },
-        ].map((item, idx) => (
-          <div
-            key={item.label}
-            className={cn(
-              "group rounded-2xl border p-5 transition-all duration-300 hover:scale-[1.02] hover:shadow-md cursor-default",
-              "animate-in fade-in slide-in-from-bottom-2",
-              theme === "dark" ? "bg-white/[0.02] border-white/10 hover:bg-white/[0.04]" : "bg-white/60 border-zinc-200 hover:bg-white"
-            )}
-            style={{ animationDelay: `${450 + idx * 50}ms` }}
-          >
-            <div className="flex items-start gap-3">
-              <div className={cn("text-2xl flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center transition-transform duration-300 group-hover:scale-110", theme === "dark" ? "bg-white/5" : "bg-zinc-100/70")}>
-                {item.icon}
-              </div>
-
-              <div className="space-y-1 min-w-0">
-                <p className={cn("text-[14px] font-bold tracking-[-0.015em]", theme === "dark" ? "text-white/95" : "text-zinc-900")}>
-                  {item.label}
-                </p>
-                <p className={cn("text-[13px] leading-[1.6] font-medium tracking-[-0.01em]", theme === "dark" ? "text-white/60" : "text-zinc-600")}>
-                  {item.desc}
-                </p>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Detailed guarantees */}
-      <div
-        className={cn(
-          "rounded-2xl border p-5 md:p-6 space-y-4",
-          "animate-in fade-in slide-in-from-bottom-3 duration-700",
-          theme === "dark" ? "bg-white/[0.015] border-white/8" : "bg-zinc-50/50 border-zinc-200/70"
-        )}
-        style={{ animationDelay: "600ms" }}
-      >
-        <div className="flex items-center gap-2">
-          <span className={cn("h-1 w-1 rounded-full", theme === "dark" ? "bg-blue-400/60" : "bg-blue-600/50")} />
-          <h3 className={cn("text-[11px] font-black uppercase tracking-[0.28em]", "bg-gradient-to-r from-blue-600 to-emerald-600 dark:from-blue-400 dark:to-emerald-400 bg-clip-text text-transparent")}>
-            Our Commitments
-          </h3>
-        </div>
-
-        <ul className={cn("space-y-3.5 text-[13px] md:text-[14px] leading-[1.7] font-medium tracking-[-0.01em]", theme === "dark" ? "text-white/75" : "text-zinc-700")}>
-          {[
-            "Session-only processing — your data never touches persistent storage",
-            "Automatic cleanup — all traces removed when you close this page",
-            "No model training — we never use your data to improve our models",
-            "No third-party sharing — your information stays completely private",
-            "No analytics tracking — we don’t track the contents of what you analyze ",
-          ].map((text, i) => (
-            <li key={i} className="flex gap-3 group">
-              <span
-                className={cn(
-                  "mt-[7px] h-1.5 w-1.5 rounded-full flex-shrink-0 transition-all duration-300 group-hover:scale-125",
-                  theme === "dark"
-                    ? "bg-gradient-to-r from-blue-400 to-emerald-400 shadow-[0_0_8px_rgba(59,130,246,0.4)]"
-                    : "bg-gradient-to-r from-blue-500 to-emerald-500 shadow-[0_0_8px_rgba(59,130,246,0.3)]"
-                )}
-              />
-              <span className="transition-colors duration-300 group-hover:text-current">{text}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Final reassurance */}
-      <div
-        className={cn(
-          "flex items-start gap-3 p-4 rounded-2xl border",
-          "animate-in fade-in slide-in-from-bottom-2 duration-700",
-          theme === "dark" ? "bg-emerald-500/[0.03] border-emerald-500/15" : "bg-emerald-50/50 border-emerald-200/50"
-        )}
-        style={{ animationDelay: "700ms" }}
-      >
-        <span className="text-xl mt-0.5">✓</span>
-        <div>
-          <p className={cn("text-[13px] md:text-[14px] leading-[1.7] font-semibold tracking-[-0.01em]", theme === "dark" ? "text-emerald-200" : "text-emerald-900")}>
-            When you leave, the session is cleared.
-          </p>
-          <p className={cn("text-[12px] md:text-[13px] leading-[1.7] font-medium mt-1", theme === "dark" ? "text-emerald-300/70" : "text-emerald-800/70")}>
-            Your data stays yours. Always.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 
 
@@ -1887,7 +1680,7 @@ const uiLang = useMemo(() => {
   // Priority: backend → URL override → browser → English
   return normalizeLang(fromResult || fromUrl || browserLang || "en");
 }, [result, browserLang]);
-
+const P = getPaywallCopy(uiLang);
 
   // ✅ IMPORTANT: we no longer use this to disable the button.
   // We only use it to decide if explain() should run or show a message.
@@ -2961,9 +2754,9 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
           )}
         >
           <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center md:items-start gap-10 md:gap-16">
-{/* Visual anchor — desktop only */}
-<div className="relative group/icon md:pt-1 hidden md:block">
-  <div
+    {/* Visual anchor — desktop only */}
+    <div className="relative group/icon md:pt-1 hidden md:block">
+    <div
     className={cn(
       "w-20 h-20 rounded-[2rem] flex items-center justify-center relative z-10",
       "transition-all duration-700 group-hover/icon:rotate-[6deg] group-hover/icon:scale-[1.03]",
@@ -2980,7 +2773,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
   </div>
 
   <div className="absolute inset-0 bg-indigo-500 blur-2xl opacity-15 scale-75 group-hover/icon:opacity-25 transition-opacity" />
-</div>
+  </div>
 
 
 
@@ -3010,7 +2803,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                       theme === "dark" ? "text-indigo-200/90" : "text-indigo-700"
                     )}
                   >
-                    Access required
+                    {P.badge}
                   </span>
                 </div>
 
@@ -3020,7 +2813,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                     theme === "dark" ? "text-white" : "text-zinc-900"
                   )}
                 >
-                  Unlock full access.
+                  {P.title}
                 </h2>
 
                 <p
@@ -3029,25 +2822,16 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                     theme === "dark" ? "text-zinc-300/80" : "text-zinc-600"
                   )}
                 >
-                  {paywall.message}
+                  {P.subtitle}
                 </p>
 
-                {!!paywall.reason && (
-                  <p
-                    className={cn(
-                      "text-[13px] md:text-[14px] leading-relaxed max-w-lg mx-auto md:mx-0 font-medium",
-                      theme === "dark" ? "text-zinc-300/70" : "text-zinc-600/90"
-                    )}
-                  >
-                    {paywall.reason}
-                  </p>
-                )}
+
               </div>
 
                {/* Actions */}
               <div className="pt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
                 {/* ✅ Trial button ONLY when eligible/active */}
-{(billing?.reason === "trial_active" ||
+  {(billing?.reason === "trial_active" ||
   billing?.reason === "missing_session" ||
   billing?.reason === "invalid_session" ||
   billing?.reason === "no_customer") && (           
@@ -3083,7 +2867,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                             "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.16)]",
                           ].join(" ")
                     )}
-                    title="Start your 3-day free trial (no card)."
+                    title={P.trialTitleAttr}
                   >
                     {/* soft inner highlight */}
                     <span
@@ -3110,7 +2894,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                     <span className="relative z-10 flex flex-col items-center leading-tight">
                       <span className="flex items-center justify-center gap-3">
                         <span className="text-[15px] font-semibold tracking-[-0.01em]">
-                          Please Start our free trial
+                          {P.trialCta}
                         </span>
                         <ArrowRight
                           size={18}
@@ -3128,7 +2912,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                           theme === "dark" ? "text-white/70" : "text-zinc-600"
                         )}
                       >
-                        3-day trial · No card
+                        {P.trialSub}
                       </span>
                     </span>
                   </button>
@@ -3161,16 +2945,16 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                     {subLoading ? (
                       <>
                         <Loader2 size={18} className="animate-spin motion-reduce:animate-none" />
-                        <span>Redirecting…</span>
+                        <span>{P.redirecting}</span>
                       </>
                     ) : (
                       <span className="flex flex-col items-center leading-tight">
                         <span className="flex items-center gap-3">
-                          <span>Subscribe £4.99/mo</span>
+                          <span>{P.subscribeCta} £4.99{P.perMonth}</span>
                           <ArrowRight size={18} className="opacity-85" />
                         </span>
                         <span className="mt-0.5 text-[13px] font-medium opacity-70">
-                          Full access · Fair use · Cancel anytime
+                          {P.subscribeSub}
                         </span>
                       </span>
                     )}
@@ -3199,14 +2983,14 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                   )}
                 >
                   <div className="w-full space-y-3">
-<div className="space-y-1 text-center md:text-left">
+  <div className="space-y-1 text-center md:text-left">
   <p
     className={cn(
       "text-[10px] font-black uppercase tracking-[0.28em]",
       theme === "dark" ? "text-white/55" : "text-zinc-600"
     )}
   >
-    Secure email link
+   {P.secureEmailTitle}
   </p>
 
   <p
@@ -3215,9 +2999,9 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
       theme === "dark" ? "text-white/55" : "text-zinc-600"
     )}
   >
-    We’ll send a one-time sign-in link to restore access.
+    {P.secureEmailDesc}
   </p>
-</div>
+ </div>
 
 
                     <div className="flex flex-col sm:flex-row gap-3">
@@ -3228,12 +3012,12 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                             theme === "dark" ? "text-white/55" : "text-zinc-600"
                           )}
                         >
-                          Email
+                          {P.emailLabel}
                         </label>
                         <input
                           value={magicEmail}
                           onChange={(e) => setMagicEmail(e.target.value)}
-                          placeholder="you@company.com"
+                          placeholder={P.emailPlaceholder}
                           className={cn(
                             "mt-2 w-full rounded-2xl border bg-transparent px-4 py-3 outline-none",
                             "text-[15px] md:text-[16px] font-medium tracking-[-0.01em]",
@@ -3255,9 +3039,9 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                           "inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl",
                           "text-[13px] font-semibold tracking-[-0.01em]",
                           "transition-transform duration-300",
-"hover:scale-[1.13]",            // 👈 subtle zoom-in on hover
-"active:scale-[0.88]",           // 👈 gentle press-down
-"motion-reduce:transform-none",  // 👈 accessibility-safe
+  "hover:scale-[1.13]",            // 👈 subtle zoom-in on hover
+  "active:scale-[0.88]",           // 👈 gentle press-down
+  "motion-reduce:transform-none",  // 👈 accessibility-safe
 
                           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/35 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
                           "cursor-pointer",
@@ -3271,12 +3055,12 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                         {magicBusy ? (
                           <>
                             <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />
-                            <span>Sending…</span>
+                            <span>{P.sending}</span>
                           </>
                         ) : (
                           <>
                             <Mail size={16} className="opacity-85" />
-                            <span>Send link</span>
+                            <span>{P.sendLink}</span>
                             <ArrowRight size={16} className="opacity-80" />
                           </>
                         )}
@@ -3306,7 +3090,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                     )}
 
                     <p className={cn("mt-2 text-[11px] leading-relaxed", theme === "dark" ? "text-white/45" : "text-zinc-500")}>
-                      Use this if your session expired or you opened the app on a new device.
+                      {P.sessionTip}
                     </p>
                   </div>
                 </div>
@@ -3329,7 +3113,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                 theme === "dark" ? "text-white/40 hover:text-white/75" : "text-zinc-500 hover:text-zinc-900"
               )}
             >
-              Dismiss
+              {P.dismiss}
             </button>
           </div>
         </div>
@@ -3724,7 +3508,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
           />
 
           {/* Centering wrapper */}
-          <div className="absolute inset-0 flex items-center justify-center p-4 md:p-8">
+<div className="absolute inset-0 flex items-center justify-center p-4 md:p-8 pointer-events-none">
             {/* Panel */}
             <div
               ref={privacyPanelRef}
@@ -3734,6 +3518,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
               tabIndex={-1}
               onClick={(e) => e.stopPropagation()}
               className={cn(
+                  "pointer-events-auto",
                 "w-full max-w-2xl rounded-[2.5rem] border overflow-hidden",
                 "shadow-[0_34px_120px_rgba(0,0,0,0.55)]",
                 "transition-[transform,opacity] duration-[260ms] ease-out will-change-[transform,opacity]",
@@ -3762,9 +3547,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                     <p className="text-[11px] font-black uppercase tracking-[0.28em] text-blue-600/80 dark:text-blue-400/80">
                       Privacy
                     </p>
-                    <p className={cn("text-[14px] font-semibold tracking-[-0.01em]", theme === "dark" ? "text-white/90" : "text-zinc-900")}>
-                      Notice
-                    </p>
+
                   </div>
                 </div>
 
@@ -3785,7 +3568,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
               </div>
 
               <div className="px-6 md:px-8 py-6 md:py-7 max-h-[70vh] overflow-y-auto emn-scroll">
-                <PrivacyModalContent theme={theme} />
+                <PrivacyModalContent theme={theme} lang={uiLang} />
               </div>
 
               <div
@@ -3794,19 +3577,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                   theme === "dark" ? "border-white/10" : "border-zinc-200"
                 )}
               >
-                <button
-                  type="button"
-                  onClick={closePrivacy}
-                  className={cn(
-                    "inline-flex items-center gap-2 px-4 py-2 rounded-2xl",
-                    "text-[13px] font-semibold tracking-[-0.01em]",
-                    "transition-all duration-200 active:scale-[0.99]",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                    theme === "dark" ? "bg-white text-black hover:opacity-90" : "bg-black text-white hover:opacity-90"
-                  )}
-                >
-                  Close
-                </button>
+
               </div>
             </div>
           </div>
