@@ -1,6 +1,6 @@
 // src/app/page.tsx
 "use client";
-
+import { getBillingStatusLabels } from "@/lib/i18n/billingStatusLabels";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import PrivacyModalContent from "@/components/PrivacyModalContent";
 import { getPaywallCopy } from "@/lib/i18n/paywallLabels";
@@ -62,6 +62,7 @@ type BillingStatus = {
     | "subscription_active"
     | "subscription_cancelled" // ✅ cancelled but still in period (still has access)
     | "no_entitlement"         // ✅ trial ended OR cancelled & expired OR never subscribed
+    
     | "stripe_error";
 
   trialEndsAt: number | null;
@@ -145,70 +146,64 @@ function daysLeftFromTrialEnd(trialEndsAtSec: number) {
   return Math.max(0, days);
 }
 
-function buildTrialChip(b: BillingStatus | null) {
+function buildTrialChip(b: BillingStatus | null, uiLang: string, pricePerMonth: string) {
   if (!b) return null;
 
-  // ✅ "Manage" states:
-  // - subscription_active (subscribed)
-  // - subscription_cancelled (cancelled but still in paid period)
-  // - trial_active (optional: allow user to manage/cancel early)
+  const B = getBillingStatusLabels(uiLang);
 
-
+  // ✅ Subscribed
   if (b.reason === "subscription_active") {
     return {
       tone: "good" as const,
-      title: "Subscribed",
-      sub: "£4.99/mo active",
+      title: B.subscribed,
+      sub: `${pricePerMonth} ${B.active}`,
       cta: "manage" as const,
     };
   }
 
-if (b.reason === "subscription_cancelled") {
-  const until =
-    typeof b.currentPeriodEnd === "number"
-      ? new Date(b.currentPeriodEnd * 1000).toLocaleDateString("en-GB", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-})
+  // ✅ Cancelling (still has access)
+  if (b.reason === "subscription_cancelled") {
+    const until =
+      typeof b.currentPeriodEnd === "number"
+        ? new Date(b.currentPeriodEnd * 1000).toLocaleDateString("en-GB", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          })
+        : null;
 
-      : null;
+    return {
+      tone: "good" as const,
+      title: B.cancelling,
+      sub: until ? B.accessUntil(until) : B.cancelling,
+      cta: "manage" as const,
+    };
+  }
 
-  return {
-    tone: "good" as const,
-    title: "Cancelling",
-    sub: until ? `Access until ${until}` : "Cancels at period end",
-    cta: "manage" as const,
-  };
-}
-
-
+  // ✅ Trial active (no Manage)
 if (b.reason === "trial_active" && typeof b.trialEndsAt === "number") {
   const d = daysLeftFromTrialEnd(b.trialEndsAt);
-  const dayWord = d === 1 ? "day" : "days";
   return {
     tone: "trial" as const,
-    title: "Free trial",
-    sub: `${d} ${dayWord} left`,
-    // ✅ No Manage during trial (avoids Stripe portal “Don’t cancel subscription” confusion)
+    title: B.trialTitle,
+    sub: B.trialDaysLeft(d),
   };
 }
 
 
-  // ✅ "Subscribe" states:
-  // - no_entitlement (trial ended, cancelled+expired, or never subscribed)
+  // ✅ Access ended -> Subscribe
   if (b.reason === "no_entitlement") {
     return {
       tone: "ended" as const,
-      title: "Access ended",
-      sub: "Subscribe £4.99/mo",
+      title: B.accessEnded,
+      sub: B.subscribeCta(pricePerMonth),
       cta: "subscribe" as const,
     };
   }
 
-  // No session / unknown → don’t show a chip (keeps UI clean)
   return null;
 }
+
 
 
 
@@ -656,6 +651,8 @@ const SECTION_TITLES: Record<string, Record<SectionKey, string>> = {
     evidence: "可信度",
   },
 };
+
+
 
 // ✅ Small UI labels used in multiple components
 const UI_LABELS = {
@@ -1681,7 +1678,8 @@ const uiLang = useMemo(() => {
   return normalizeLang(fromResult || fromUrl || browserLang || "en");
 }, [result, browserLang]);
 const P = getPaywallCopy(uiLang);
-
+const B = getBillingStatusLabels(uiLang);
+const PRICE_PER_MONTH = `£4.99${P.perMonth}`; // uses your translated "/mo"
   // ✅ IMPORTANT: we no longer use this to disable the button.
   // We only use it to decide if explain() should run or show a message.
   const canExplain = !loading && !overLimit && (hasFile || (hasText && (!hasResult || inputChangedSinceRun)));
@@ -1810,6 +1808,8 @@ useEffect(() => {
 
   const checkoutStatus = subscribeParam || billingParam; // normalize
 
+
+  
   // ✅ Checkout result (subscription)
 // ✅ Checkout result (subscription)
 if (checkoutStatus === "success") {
@@ -2379,7 +2379,7 @@ if (res.status === 402) {
 
   const showEditToRerun = !hasFile && hasResult && !inputChangedSinceRun;
   const textareaLocked = hasFile;
-const chip = buildTrialChip(billing);
+const chip = buildTrialChip(billing, uiLang, PRICE_PER_MONTH);
   
   if (!mounted) {
   // Return a stable placeholder so server + client match.

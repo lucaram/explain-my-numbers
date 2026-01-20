@@ -8,7 +8,7 @@ import { sendMagicLinkEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
-const TRIAL_DAYS = 3;
+const TRIAL_DAYS = 0;
 const MAGIC_LINK_TTL_SECONDS = 15 * 60; // 15 minutes
 
 function isValidEmail(email: string) {
@@ -157,6 +157,7 @@ export async function POST(req: Request) {
     }
 
     const stripe = new Stripe(STRIPE_SECRET_KEY);
+    
     const redis = Redis.fromEnv();
 
     // --------------------------
