@@ -1,5 +1,7 @@
 // src/app/page.tsx
 "use client";
+import { I18N_UI_TEXTS } from "@/lib/i18n/inputBoxAndChips";
+import { I18N_MESSAGES } from "@/lib/i18n/errorsAndMessages";
 import { getBillingStatusLabels } from "@/lib/i18n/billingStatusLabels";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import PrivacyModalContent from "@/components/PrivacyModalContent";
@@ -1425,19 +1427,23 @@ function IconButton({
   );
 }
 
-function friendlyErrorMessage(error: ExplainErr["error"], code?: string) {
+function friendlyErrorMessage(
+  error: ExplainErr["error"],
+  code: string | undefined,
+  uiLang: string
+) {
   if (!code) return error;
 
   if (code === "INPUT_TOO_LARGE") return error;
   if (code === "UPLOAD_TOO_LARGE") return error;
-  if (code === "RATE_LIMITED") return "Too many requests. Give it a minute, then try again.";
-  if (code === "INVALID_JSON") return "Request format error. Refresh the page and try again.";
-  if (code === "EMPTY_INPUT") return "Please paste or upload some numbers.";
-  if (code === "UPSTREAM_FAILURE") return "Analysis provider is temporarily unavailable. Try again in a moment.";
-  if (code === "BAD_OUTPUT_FORMAT") return "Output formatting failed. Try again (or simplify the input).";
+  if (code === "RATE_LIMITED") return t(uiLang, "RATE_LIMITED");
+  if (code === "INVALID_JSON") return t(uiLang, "INVALID_JSON");
+  if (code === "EMPTY_INPUT") return t(uiLang, "EMPTY_INPUT");
+  if (code === "UPSTREAM_FAILURE") return t(uiLang, "UPSTREAM_FAILURE");
+   if (code === "BAD_OUTPUT_FORMAT") return t(uiLang, "BAD_OUTPUT_FORMAT");
   if (code === "NO_MATCHING_SHEET") return error;
   if (code === "EXCEL_PARSE_FAILED") return error;
-  if (code === "GATE_REQUIRED") return "Security check failed. Please retry.";
+  if (code === "GATE_REQUIRED") return t(uiLang, "GATE_REQUIRED");
   return error;
 }
 
@@ -1610,8 +1616,17 @@ function FileChip({ file, theme, onRemove }: { file: File; theme: Theme; onRemov
 /** ✅ Privacy modal content (minimal + premium, no external file) */
 
 
+function t(lang: string, key: keyof typeof I18N_MESSAGES.en) {
+  return (
+    I18N_MESSAGES[lang as keyof typeof I18N_MESSAGES]?.[key] ??
+    I18N_MESSAGES.en[key]
+  );
+}
 
-
+function tUI(lang: string, key: keyof typeof I18N_UI_TEXTS.en) {
+  return I18N_UI_TEXTS[lang as keyof typeof I18N_UI_TEXTS]?.[key]
+    ?? I18N_UI_TEXTS.en[key];
+}
 
 export default function HomePage() {
   const [browserLang, setBrowserLang] = useState<string>("en");
@@ -1820,11 +1835,11 @@ if (checkoutStatus === "success") {
   // ✅ NEW: refresh billing immediately so chip updates now
   refreshBillingStatus().catch(() => {});
 
-  setExplainBlockReason("Subscription active. You can continue.");
+  setExplainBlockReason(tUI(uiLang, "SUBSCRIPTION_ACTIVE_CONTINUE"));
   window.setTimeout(() => setExplainBlockReason(""), 2200);
 }
  else if (checkoutStatus === "cancel") {
-    setExplainBlockReason("Checkout cancelled.");
+    setExplainBlockReason(tUI(uiLang, "CHECKOUT_CANCELLED"));
     window.setTimeout(() => setExplainBlockReason(""), 1800);
   }
 
@@ -1832,12 +1847,12 @@ if (checkoutStatus === "success") {
   if (magic === "ok") {
     // If they tried to start another trial, tell them nicely what to do next
     if (intent === "subscribe_required") {
-      setMagicNote("Free trial already used for this email. Please subscribe to continue.");
+      setMagicNote(t(uiLang, "FREE_TRIAL_USED_NOTE"));
       setMagicOpen(false);
-      setExplainBlockReason("Free trial already used — subscription required after the trial period.");
+      setExplainBlockReason(t(uiLang, "FREE_TRIAL_USED_BLOCK"));
       window.setTimeout(() => setExplainBlockReason(""), 2600);
    } else if (intent === "trial") {
-  setMagicNote("Trial started. You can continue.");
+  setMagicNote(t(uiLang, "TRIAL_STARTED"));
   setMagicOpen(false);
 
   // ✅ NEW: refresh billing immediately so chip shows trial_active + days left
@@ -2046,7 +2061,7 @@ async function goSubscribe() {
   setMagicNote("");
   setExplainBlockReason("");
 
-  setMagicNote("Enter your email to receive a secure sign-in link.");
+  setMagicNote(t(uiLang, "MAGIC_EMAIL_HELP"));
 
   // if user opens subscribe flow, we consider "loading" done once modal is open
   // (actual redirect happens after they click the link in email)
@@ -2149,7 +2164,7 @@ useEffect(() => {
   try {
     const email = magicEmail.trim().toLowerCase();
     if (!email || !email.includes("@")) {
-      setMagicNote("Enter a valid email address.");
+      setMagicNote(t(uiLang, "INVALID_EMAIL"));
       return;
     }
 
@@ -2168,22 +2183,20 @@ useEffect(() => {
 
     // 🟡 Graceful handling of known backend responses
     if (!r.ok || !body?.ok) {
-      setMagicNote(
-        body?.error || "Could not send magic link. Please try again."
-      );
+     setMagicNote(body?.error || t(uiLang, "MAGIC_LINK_FAILED"));
       return;
     }
 
     // ✅ Success UX
     setMagicNote(
       magicIntent === "trial"
-        ? "Magic link sent. Check your email to start your 3-day trial."
-        : "Magic link sent. Check your email to continue to checkout."
+        ? t(uiLang, "MAGIC_LINK_TRIAL_SENT")
+    : t(uiLang, "MAGIC_LINK_SUBSCRIBE_SENT")
     );
   } catch (err) {
     // 🔴 Only truly unexpected errors land here
     console.error("Unexpected magic link error:", err);
-    setMagicNote("Something went wrong. Please try again later.");
+    setMagicNote(t(uiLang, "MAGIC_LINK_UNEXPECTED"));
   } finally {
     setMagicBusy(false);
   }
@@ -2209,12 +2222,12 @@ setExplainBlockReason(`Over limit: ${fmtN(charCount)} / ${fmtN(MAX_INPUT_CHARS)}
     }
 
     if (!hasFile && !hasText) {
-      setExplainBlockReason("Paste some data or upload a file.");
+      setExplainBlockReason(tUI(uiLang, "PASTE_OR_UPLOAD"));
       return;
     }
 
     if (!hasFile && hasResult && !inputChangedSinceRun) {
-      setExplainBlockReason("Edit your input to re-run.");
+      setExplainBlockReason(tUI(uiLang, "EDIT_INPUT_TO_RERUN"));
       return;
     }
 
@@ -2351,7 +2364,7 @@ if (res.status === 402) {
   const errorUi = useMemo(() => {
     if (!result || result.ok) return null;
 
-    const msg = friendlyErrorMessage(result.error, result.error_code);
+    const msg = friendlyErrorMessage(result.error, result.error_code, uiLang);
 
     const hint =
       result.error_code === "RATE_LIMITED" || lastHttpStatus === 429
@@ -2531,7 +2544,7 @@ const chip = buildTrialChip(billing, uiLang, PRICE_PER_MONTH);
       "disabled:opacity-60 disabled:cursor-not-allowed"
     )}
   >
-    {subLoading ? "Redirecting…" : "Subscribe"}
+    {subLoading ? tUI(uiLang, "BTN_REDIRECTING") : tUI(uiLang, "BTN_SUBSCRIBE")}
   </button>
 ) : chip.cta === "manage" ? (
   <button
@@ -2550,7 +2563,7 @@ const chip = buildTrialChip(billing, uiLang, PRICE_PER_MONTH);
     )}
     title="Manage subscription"
   >
-    {portalLoading ? "Opening…" : "Manage"}
+    {portalLoading ? tUI(uiLang, "BTN_OPENING") : tUI(uiLang, "BTN_MANAGE")}
   </button>
 ) : null}
 
@@ -2816,14 +2829,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                   {P.title}
                 </h2>
 
-                <p
-                  className={cn(
-                    "text-[15px] md:text-[17px] leading-relaxed max-w-lg mx-auto md:mx-0 font-medium",
-                    theme === "dark" ? "text-zinc-300/80" : "text-zinc-600"
-                  )}
-                >
-                  {P.subtitle}
-                </p>
+
 
 
               </div>
