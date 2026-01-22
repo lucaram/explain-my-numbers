@@ -1115,7 +1115,7 @@ function ElegantAnalysis({
 
     return (
     <div className="flex items-center gap-2">
-  <ElegantPill level={lvl} lang={lang} />
+<ElegantPill level={lvl} lang={lang} pct={pct} />
 
   {typeof pct === "number" && (
     <span
@@ -1293,10 +1293,13 @@ function VisualAnalysisLoader({ uiLang }: { uiLang: string }) {
 function ElegantPill({
   level,
   lang,
+  pct,
 }: {
   level: "Low" | "Medium" | "High" | null;
   lang?: string;
+  pct?: number;
 }) {
+
 const config: Record<string, string> = {
   High:
     // ✅ mobile: solid, stable colors (no /10 wash)
