@@ -1117,22 +1117,7 @@ function ElegantAnalysis({
     <div className="flex items-center gap-2">
   <ElegantPill level={lvl} lang={lang} />
 
-  {typeof pct === "number" && (
-    <span
-      className={cn(
-        "px-2 py-0.5 rounded-full border text-[10px] font-black tracking-[0.14em]",
-        lvl === "High"
-          ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-emerald-500/25"
-          : lvl === "Medium"
-          ? "bg-amber-500/10 text-amber-900 dark:text-amber-200 border-amber-500/25"
-          : lvl === "Low"
-          ? "bg-rose-500/10 text-rose-800 dark:text-rose-200 border-rose-500/25"
-          : "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200 border-zinc-500/25"
-      )}
-    >
-      
-    </span>
-  )}
+
 </div>
 
     );
