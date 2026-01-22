@@ -1127,20 +1127,35 @@ function ElegantAnalysis({
 <span
   className={cn(
     "h-1.5 w-1.5 rounded-full",
-
     lvl === "High"
       ? "bg-emerald-600 md:bg-emerald-500 " +
-        "shadow-[0_0_0_rgba(0,0,0,0)] md:shadow-[0_0_12px_rgba(16,185,129,0.40)]"
+          "shadow-[0_0_0_rgba(0,0,0,0)] md:shadow-[0_0_12px_rgba(16,185,129,0.40)]"
       : lvl === "Medium"
       ? "bg-amber-600 md:bg-amber-500 " +
-        "shadow-[0_0_0_rgba(0,0,0,0)] md:shadow-[0_0_12px_rgba(245,158,11,0.30)]"
+          "shadow-[0_0_0_rgba(0,0,0,0)] md:shadow-[0_0_12px_rgba(245,158,11,0.30)]"
       : lvl === "Low"
       ? "bg-rose-600 md:bg-rose-500 " +
-        "shadow-[0_0_0_rgba(0,0,0,0)] md:shadow-[0_0_12px_rgba(244,63,94,0.30)]"
+          "shadow-[0_0_0_rgba(0,0,0,0)] md:shadow-[0_0_12px_rgba(244,63,94,0.30)]"
       : "bg-zinc-500 md:bg-zinc-400"
   )}
 />
-<span>{UI_LABELS.confidence[langNorm] ?? UI_LABELS.confidence.en} · {pillText}</span>
+
+<span
+  className={cn(
+    "text-[12px] font-semibold",
+    // ✅ force readable text colors in LIGHT + DARK, prevents inheriting washed-out red
+    lvl === "High"
+      ? "text-emerald-800 dark:text-emerald-200"
+      : lvl === "Medium"
+      ? "text-amber-900 dark:text-amber-200"
+      : lvl === "Low"
+      ? "text-rose-800 dark:text-rose-200"
+      : "text-zinc-800 dark:text-zinc-200"
+  )}
+>
+  {pillText}
+</span>
+
 
 
 
