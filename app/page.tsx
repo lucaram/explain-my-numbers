@@ -1115,7 +1115,7 @@ function ElegantAnalysis({
 
     return (
     <div className="flex items-center gap-2">
-<ElegantPill level={lvl} lang={lang} pct={pct} />
+  <ElegantPill level={lvl} lang={lang} />
 
   {typeof pct === "number" && (
     <span
@@ -1130,7 +1130,7 @@ function ElegantAnalysis({
           : "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200 border-zinc-500/25"
       )}
     >
-      {pct}%
+      
     </span>
   )}
 </div>
@@ -1293,13 +1293,10 @@ function VisualAnalysisLoader({ uiLang }: { uiLang: string }) {
 function ElegantPill({
   level,
   lang,
-  pct,
 }: {
   level: "Low" | "Medium" | "High" | null;
   lang?: string;
-  pct?: number;
 }) {
-
 const config: Record<string, string> = {
   High:
     // ✅ mobile: solid, stable colors (no /10 wash)
