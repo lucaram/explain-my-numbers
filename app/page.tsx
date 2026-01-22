@@ -1,10 +1,12 @@
 // src/app/page.tsx
 "use client";
+import { tUi18 } from "@/lib/i18n/uiCopy";
 import { I18N_UI_TEXTS } from "@/lib/i18n/inputBoxAndChips";
 import { I18N_MESSAGES } from "@/lib/i18n/errorsAndMessages";
 import { getBillingStatusLabels } from "@/lib/i18n/billingStatusLabels";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import PrivacyModalContent from "@/components/PrivacyModalContent";
+
 import { getPaywallCopy } from "@/lib/i18n/paywallLabels";
 import {
   Copy,
@@ -1629,6 +1631,43 @@ function tUI(lang: string, key: keyof typeof I18N_UI_TEXTS.en) {
 }
 
 export default function HomePage() {
+  const [monthlyPrice, setMonthlyPrice] = useState<string>("£4.99");
+ 
+ useEffect(() => {
+  let cancelled = false;
+
+  (async () => {
+    const pageUrl = new URL(window.location.href);
+    const forcedCountry = pageUrl.searchParams.get("country");
+
+    const endpoint = forcedCountry
+      ? `/api/billing/price-preview?country=${encodeURIComponent(forcedCountry)}`
+      : "/api/billing/price-preview";
+
+    try {
+      const r = await fetch(endpoint, { cache: "no-store" });
+      const j = await r.json().catch(() => null);
+
+
+      if (cancelled) return;
+
+      if (r.ok && j?.ok && typeof j?.symbol === "string" && typeof j?.amount === "number") {
+        const display = `${j.symbol}${j.amount.toFixed(2)}`;
+        setMonthlyPrice(display);
+      } else {
+      }
+    } catch (e) {
+      // keep default "£4.99"
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
+
+
+
   const [browserLang, setBrowserLang] = useState<string>("en");
 
 useEffect(() => {
@@ -1694,7 +1733,7 @@ const uiLang = useMemo(() => {
 }, [result, browserLang]);
 const P = getPaywallCopy(uiLang);
 const B = getBillingStatusLabels(uiLang);
-const PRICE_PER_MONTH = `£4.99${P.perMonth}`; // uses your translated "/mo"
+const PRICE_PER_MONTH = `${monthlyPrice}${P.perMonth}`;
   // ✅ IMPORTANT: we no longer use this to disable the button.
   // We only use it to decide if explain() should run or show a message.
   const canExplain = !loading && !overLimit && (hasFile || (hasText && (!hasResult || inputChangedSinceRun)));
@@ -2596,9 +2635,9 @@ const chip = buildTrialChip(billing, uiLang, PRICE_PER_MONTH);
         <header className="mb-4 md:mb-6 space-y-2 md:space-y-4 print:hidden">
           <div className="space-y-3">
             <h1 className="text-5xl md:text-[5rem] font-[950] tracking-[-0.065em] leading-[0.86] md:leading-[0.80]">
-              <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Data.</span>{" "}
+              <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Data. </span>{" "}
               <span className="inline pb-[0.1em] md:pb-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-400 bg-[length:200%_auto] animate-shimmer-text">
-                Narrated.
+                Explained
               </span>
             </h1>
           </div>
@@ -2669,7 +2708,7 @@ const chip = buildTrialChip(billing, uiLang, PRICE_PER_MONTH);
             </div>
 
             <div className="flex items-center gap-2">
-              <IconButton title="Reset" onClick={reset} tone="neutral" className="emn-reset">
+<IconButton title={tUi18(uiLang, "RESET")} onClick={reset} tone="neutral" className="emn-reset">
                 <RotateCcw size={18} />
               </IconButton>
 
@@ -2956,8 +2995,10 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                     ) : (
                       <span className="flex flex-col items-center leading-tight">
                         <span className="flex items-center gap-3">
-                          <span>{P.subscribeCta} £4.99{P.perMonth}</span>
-                          <ArrowRight size={18} className="opacity-85" />
+<span>
+  {P.subscribeCta} {monthlyPrice}
+  {P.perMonth}
+</span>                          <ArrowRight size={18} className="opacity-85" />
                         </span>
                         <span className="mt-0.5 text-[13px] font-medium opacity-70">
                           {P.subscribeSub}
@@ -3388,7 +3429,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
 
                       <div>
                         <p className={cn("text-[11px] font-black uppercase tracking-[0.28em]", theme === "dark" ? "text-rose-200/75" : "text-rose-700/70")}>
-                          Couldn’t complete
+                          {tUi18(uiLang, "COULDNT_COMPLETE")}
                         </p>
 
                         <p className={cn("mt-2 text-[13px] md:text-[14px] font-semibold tracking-[-0.01em]", theme === "dark" ? "text-white/90" : "text-zinc-900")}>
@@ -3403,41 +3444,28 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={reset}
-                      className={cn(
-                        "inline-flex items-center gap-2 px-4 py-2 rounded-2xl border",
-                        "text-[13px] font-semibold tracking-[-0.01em]",
-                        "transition-all duration-200 active:scale-[0.99]",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                        theme === "dark"
-                          ? "border-white/10 bg-white/[0.02] hover:bg-white/6 text-white/85"
-                          : "border-zinc-200 bg-white/70 hover:bg-white text-zinc-900"
-                      )}
-                    >
-                      <RotateCcw size={16} className="opacity-80" />
-                      <span>Reset</span>
-                    </button>
+
                   </div>
 
                   {/* When paywall is active we already show the block above; keep error area clean */}
                   {!paywall && (
                     <div className={cn("rounded-2xl border p-5 md:p-6", theme === "dark" ? "border-white/10 bg-white/[0.02]" : "border-zinc-200 bg-white/70")}>
-                      <p className={cn("text-[11px] font-black uppercase tracking-[0.28em]", theme === "dark" ? "text-white/60" : "text-zinc-600")}>
-                        Quick checks
-                      </p>
-                      <ul className={cn("mt-3 space-y-2 text-[13px] leading-relaxed font-medium", theme === "dark" ? "text-white/75" : "text-zinc-700")}>
-                        <li className="pl-6 relative before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40">
-                          If you pasted data, ensure it’s tabular (CSV/TSV style) with a header row.
-                        </li>
-                        <li className="pl-6 relative before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40">
-                          If you uploaded Excel, try exporting the relevant sheet to CSV.
-                        </li>
-                        <li className="pl-6 relative before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40">
-                          If it’s rate-limited, wait a minute and retry.
-                        </li>
-                      </ul>
+                     <p className={cn("text-[11px] font-black uppercase tracking-[0.28em]", theme === "dark" ? "text-white/60" : "text-zinc-600")}>
+  {tUi18(uiLang, "QUICK_CHECKS_TITLE")}
+</p>
+
+<ul className={cn("mt-3 space-y-2 text-[13px] leading-relaxed font-medium", theme === "dark" ? "text-white/75" : "text-zinc-700")}>
+  <li className="pl-6 relative before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40">
+    {tUi18(uiLang, "QUICK_CHECK_1")}
+  </li>
+  <li className="pl-6 relative before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40">
+    {tUi18(uiLang, "QUICK_CHECK_2")}
+  </li>
+  <li className="pl-6 relative before:content-['•'] before:absolute before:left-0 before:text-blue-600/40 dark:before:text-blue-400/40">
+    {tUi18(uiLang, "QUICK_CHECK_3")}
+  </li>
+</ul>
+
                     </div>
                   )}
                 </div>

@@ -40,7 +40,9 @@ function verifySignedSessionCookie(cookieValue: string, secret: string) {
 
   const [bodyB64, sigB64] = parts;
 
-  const expectedSigB64 = base64url(createHmac("sha256", secret).update(bodyB64).digest());
+  const expectedSigB64 = base64url(
+    createHmac("sha256", secret).update(bodyB64).digest()
+  );
 
   const a = Buffer.from(sigB64);
   const b = Buffer.from(expectedSigB64);
@@ -65,7 +67,11 @@ function verifySignedSessionCookie(cookieValue: string, secret: string) {
   }
 }
 
-async function readSession(): Promise<{ email: string; stripeCustomerId: string; sid: string } | null> {
+async function readSession(): Promise<{
+  email: string;
+  stripeCustomerId: string;
+  sid: string;
+} | null> {
   const name = process.env.SESSION_COOKIE_NAME || "emn_session";
   const jar = await cookies();
   const c = jar.get(name)?.value;
@@ -83,6 +89,73 @@ async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
 
   const retryAfterSec = Math.max(1, Math.ceil((res.reset - Date.now()) / 1000));
   return { ok: false as const, retryAfterSec };
+}
+
+/**
+ * Country detection:
+ * - Prefer Vercel geolocation header when deployed: x-vercel-ip-country
+ * - Fallback to Cloudflare: cf-ipcountry
+ * - Default to US (matches requirement: "any other country defaults to USD")
+ */
+function getRequestCountry(req: Request): string {
+  const c1 = req.headers.get("x-vercel-ip-country");
+  if (c1 && c1.trim()) return c1.trim().toUpperCase();
+
+  const c2 = req.headers.get("cf-ipcountry");
+  if (c2 && c2.trim()) return c2.trim().toUpperCase();
+
+  return "US";
+}
+
+const EU_COUNTRIES = new Set([
+  "AT",
+  "BE",
+  "BG",
+  "HR",
+  "CY",
+  "CZ",
+  "DK",
+  "EE",
+  "FI",
+  "FR",
+  "DE",
+  "GR",
+  "HU",
+  "IE",
+  "IT",
+  "LV",
+  "LT",
+  "LU",
+  "MT",
+  "NL",
+  "PL",
+  "PT",
+  "RO",
+  "SK",
+  "SI",
+  "ES",
+  "SE",
+]);
+
+function pickMonthlyPriceIdForCountry(country: string) {
+  // UK => GBP
+  if (country === "GB") {
+    const priceId = process.env.STRIPE_PRICE_ID_MONTHLY_GBP;
+    if (!priceId) throw new Error("Missing STRIPE_PRICE_ID_MONTHLY_GBP.");
+    return { priceId, currency: "gbp" as const };
+  }
+
+  // EU => EUR
+  if (EU_COUNTRIES.has(country)) {
+    const priceId = process.env.STRIPE_PRICE_ID_MONTHLY_EURO;
+    if (!priceId) throw new Error("Missing STRIPE_PRICE_ID_MONTHLY_EURO.");
+    return { priceId, currency: "eur" as const };
+  }
+
+  // US or everyone else => USD
+  const priceId = process.env.STRIPE_PRICE_ID_MONTHLY_USD;
+  if (!priceId) throw new Error("Missing STRIPE_PRICE_ID_MONTHLY_USD.");
+  return { priceId, currency: "usd" as const };
 }
 
 export async function POST(req: Request) {
@@ -115,21 +188,28 @@ export async function POST(req: Request) {
     if (!limiter.ok) {
       const retry = limiter.retryAfterSec ?? 600;
       return json(
-        { ok: false, error: "Too many requests. Please try again soon.", error_code: "RATE_LIMITED" },
+        {
+          ok: false,
+          error: "Too many requests. Please try again soon.",
+          error_code: "RATE_LIMITED",
+        },
         429,
         { "Retry-After": String(retry) }
       );
     }
 
-    const priceId = process.env.STRIPE_PRICE_ID_MONTHLY;
-if (!priceId) throw new Error("Missing STRIPE_PRICE_ID_MONTHLY.");
+    // ✅ Pick price by country (GB=>GBP, EU=>EUR, else=>USD)
+    const country = getRequestCountry(req);
+    const { priceId, currency } = pickMonthlyPriceIdForCountry(country);
 
     // ✅ You already have the customer id from the signed session cookie
     const customerId = sess.stripeCustomerId;
 
     const origin = new URL(req.url).origin.replace(/\/+$/, "");
-    const successUrl = process.env.STRIPE_SUCCESS_URL?.trim() || `${origin}/?billing=success`;
-    const cancelUrl = process.env.STRIPE_CANCEL_URL?.trim() || `${origin}/?billing=cancel`;
+    const successUrl =
+      process.env.STRIPE_SUCCESS_URL?.trim() || `${origin}/?billing=success`;
+    const cancelUrl =
+      process.env.STRIPE_CANCEL_URL?.trim() || `${origin}/?billing=cancel`;
 
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -142,6 +222,11 @@ if (!priceId) throw new Error("Missing STRIPE_PRICE_ID_MONTHLY.");
         product: "explain_my_numbers",
         created_by: "billing_create_checkout_session",
         email: sess.email,
+
+        // helpful debug/support metadata
+        pricing_country: country,
+        pricing_currency: currency,
+        pricing_price_id: priceId,
       },
     });
 

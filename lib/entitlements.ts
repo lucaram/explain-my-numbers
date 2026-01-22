@@ -172,10 +172,7 @@ async function writeSnapshot(customerId: string, snap: EntitlementSnapshot) {
  * - OR cancel_at is a future timestamp (even if cancel_at_period_end is false)
  * -------------------------- */
 function isCancellingFromSnapshot(snap: EntitlementSnapshot, nowSec: number) {
-  return (
-    snap.cancelAtPeriodEnd === true ||
-    (typeof snap.cancelAt === "number" && snap.cancelAt > nowSec)
-  );
+  return snap.cancelAtPeriodEnd === true || (typeof snap.cancelAt === "number" && snap.cancelAt > nowSec);
 }
 
 function isCancellingFromSub(sub: Stripe.Subscription, nowSec: number) {
@@ -252,6 +249,20 @@ function entitlementFromSnapshot(snap: EntitlementSnapshot, email: string, nowSe
 }
 
 /** --------------------------
+ * Multi-currency plan filter (GBP/EUR/USD)
+ * If none are set, we do NOT filter.
+ * -------------------------- */
+function getWantedMonthlyPriceIds(): string[] {
+  const ids = [
+    String(process.env.STRIPE_PRICE_ID_MONTHLY_GBP ?? "").trim(),
+    String(process.env.STRIPE_PRICE_ID_MONTHLY_EURO ?? "").trim(),
+    String(process.env.STRIPE_PRICE_ID_MONTHLY_USD ?? "").trim(),
+  ].filter(Boolean);
+
+  return Array.from(new Set(ids));
+}
+
+/** --------------------------
  * Stripe-based entitlement (single source of truth)
  * IMPORTANT: Prefer ACTIVE over TRIALING if both exist.
  * -------------------------- */
@@ -261,14 +272,15 @@ function entitlementFromStripeList(
   nowSec: number,
   subs: Stripe.ApiList<Stripe.Subscription>
 ): { ent: EntitlementResult; snap: EntitlementSnapshot } {
-  const wantedPriceId = String(process.env.STRIPE_PRICE_ID_MONTHLY ?? "").trim();
+  const wantedPriceIds = getWantedMonthlyPriceIds();
 
   const isWantedPlan = (s: Stripe.Subscription) => {
-    if (!wantedPriceId) return true; // if env missing, don’t filter
+    if (wantedPriceIds.length === 0) return true; // if env missing, don’t filter
     const items = s.items?.data ?? [];
     return items.some((it) => {
       const price = it.price as any;
-      return typeof price?.id === "string" && price.id === wantedPriceId;
+      const id = typeof price?.id === "string" ? price.id : "";
+      return !!id && wantedPriceIds.includes(id);
     });
   };
 
@@ -322,7 +334,8 @@ function entitlementFromStripeList(
         email,
         trialEndsAt: active.trial_end ?? null,
         activeSubscriptionId: active.id,
-        cancelAtPeriodEnd: typeof (active as any)?.cancel_at_period_end === "boolean" ? (active as any).cancel_at_period_end : null,
+        cancelAtPeriodEnd:
+          typeof (active as any)?.cancel_at_period_end === "boolean" ? (active as any).cancel_at_period_end : null,
         currentPeriodEnd: getCurrentPeriodEndFromSubscription(active),
         cancelAt,
       },
@@ -346,7 +359,8 @@ function entitlementFromStripeList(
         email,
         trialEndsAt: pastDue.trial_end ?? null,
         activeSubscriptionId: pastDue.id,
-        cancelAtPeriodEnd: typeof (pastDue as any)?.cancel_at_period_end === "boolean" ? (pastDue as any).cancel_at_period_end : null,
+        cancelAtPeriodEnd:
+          typeof (pastDue as any)?.cancel_at_period_end === "boolean" ? (pastDue as any).cancel_at_period_end : null,
         currentPeriodEnd: getCurrentPeriodEndFromSubscription(pastDue),
         cancelAt,
       },
@@ -518,4 +532,3 @@ export async function getEntitlementFromRequest(req: Request): Promise<Entitleme
     return { canExplain: false, reason: "stripe_error" };
   }
 }
-

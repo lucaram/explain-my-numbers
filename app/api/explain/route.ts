@@ -5,7 +5,8 @@ import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
 import { timingSafeEqual, createHmac, createHash } from "crypto";
 import { getEntitlementFromRequest } from "@/lib/entitlements";
-
+import { getApiErrorMessage } from "@/lib/i18n/apiErrors";
+import type { ApiErrorCode } from "@/lib/i18n/apiErrors";
 /**
  * MODE A (schema-free, comprehensive):
  * - Accept any CSV/TSV/TXT/XLS/XLSX
@@ -22,22 +23,7 @@ import * as XLSX from "xlsx";
 
 export const runtime = "nodejs";
 
-type ApiErrorCode =
-  | "INVALID_JSON"
-  | "INVALID_FORMDATA"
-  | "EMPTY_INPUT"
-  | "INPUT_TOO_LARGE"
-  | "UPLOAD_TOO_LARGE"
-  | "UNSUPPORTED_FILE"
-  | "EXCEL_PARSE_FAILED"
-  | "RATE_LIMITED"
-  | "UPSTREAM_FAILURE"
-  | "BAD_OUTPUT_FORMAT"
-  | "SERVER_ERROR"
-  | "CONFIG_ERROR"
-  | "GATE_REQUIRED"
-  | "FORBIDDEN"
-  | "NO_ENTITLEMENT";
+
 
 
 function jsonError(
@@ -536,34 +522,35 @@ function withCors(req: Request, res: NextResponse) {
 
 function jsonErrorReq(
   req: Request,
+  lang: string,
   code: ApiErrorCode,
-  message: string,
   status: number,
   headers?: Record<string, string>
 ) {
-  const res = jsonError(code, message, status, headers);
+  const msg = getApiErrorMessage(lang, code); // ✅ ONLY 2 args
+  const res = NextResponse.json(
+    { ok: false, error: msg, error_code: code },
+    { status, headers }
+  );
   return withCors(req, res);
 }
+
 
 export async function OPTIONS(req: Request) {
   try {
     enforceSameSite(req);
-
-    const res = new NextResponse(null, { status: 204 });
+    await verifyGateTokenOrThrow(req);
+    const res = new NextResponse(null, { status: 204, headers: corsHeadersFor(req) });
     return withCors(req, res);
   } catch (err: any) {
+    const lang = pickPreferredLang(req);
     const isKnown = typeof err?.code === "string" && typeof err?.status === "number";
-    if (isKnown) {
-      return jsonErrorReq(
-        req,
-        err.code as ApiErrorCode,
-        String(err.message ?? "Forbidden").slice(0, 500),
-        err.status
-      );
-    }
-    return jsonErrorReq(req, "SERVER_ERROR", "Server error. Please try again.", 500);
+    return isKnown
+      ? jsonErrorReq(req, lang, err.code as ApiErrorCode, err.status)
+      : jsonErrorReq(req, lang, "SERVER_ERROR", 500);
   }
 }
+
 
 /** --------------------------
  * Schema-free parsing / typing
@@ -2317,20 +2304,17 @@ function buildModelPack(candidate: TableCandidate, profile: ProfileMeta) {
  * -------------------------- */
 
 export async function POST(req: Request) {
+  const lang = pickPreferredLang(req)
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return jsonErrorReq(req, "CONFIG_ERROR", "Server is missing OPENAI_API_KEY configuration.", 500);
+return jsonErrorReq(req, lang, "CONFIG_ERROR", 500);
   }
 
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) {
-    return jsonErrorReq(
-      req,
-      "CONFIG_ERROR",
-      "Server is missing UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN configuration.",
-      500
-    );
+return jsonErrorReq(req, lang, "CONFIG_ERROR", 500);
+
   }
 
 // Subscription / trial entitlement gate (single source of truth)
@@ -2338,23 +2322,23 @@ const ent = await getEntitlementFromRequest(req);
 
 if (!ent.canExplain) {
   // ✅ Copy must match actual entitlement state (first-time users should NOT see "trial ended")
+  // Uses translations from lib/i18n/apiErrors.ts
   const uiError =
-  ent.reason === "no_entitlement"
-    ? "Your free trial has ended."
-    : "";
+    ent.reason === "no_entitlement"
+      ? getApiErrorMessage(lang, "TRIAL_ENDED")
+      : "";
 
-const uiReason =
-  ent.reason === "no_entitlement"
-    ? "Subscribe for £4.99/month to continue analysing."
-    : "You can start with a free trial or subscribe at any time.";
-
+  const uiReason =
+    ent.reason === "no_entitlement"
+      ? getApiErrorMessage(lang, "SUBSCRIBE_TO_CONTINUE")
+      : getApiErrorMessage(lang, "TRIAL_OR_SUBSCRIBE");
 
   return NextResponse.json(
     {
       ok: false,
       error_code: "NO_ENTITLEMENT",
-      error: uiError,                 // ✅ UI headline
-      reason: uiReason,               // ✅ UI helper line
+      error: uiError,                 // ✅ UI headline (translated)
+      reason: uiReason,               // ✅ UI helper line (translated)
       entitlement_reason: ent.reason, // ✅ machine reason (optional but useful)
       trialEndsAt: ent.trialEndsAt ?? null,
     },
@@ -2365,22 +2349,24 @@ const uiReason =
 
 
 
+
   // ✅ Require short-lived server gate token (prevents quota burning)
   try {
     enforceSameSite(req);
     await verifyGateTokenOrThrow(req);
   } catch (err: any) {
-    const isKnown = typeof err?.code === "string" && typeof err?.status === "number";
-    if (isKnown) {
-      return jsonErrorReq(
-        req,
-        err.code as ApiErrorCode,
-        String(err.message ?? "Unauthorized").slice(0, 500),
-        err.status
-      );
-    }
-    return jsonErrorReq(req, "SERVER_ERROR", "Server error. Please try again.", 500);
+  const isKnown = typeof err?.code === "string" && typeof err?.status === "number";
+
+  if (isKnown) {
+    // (Optional) log the original message for debugging, since jsonErrorReq uses i18n text
+    console.warn("Gate/Same-site reject:", String(err.message ?? ""), err.code, err.status);
+
+    return jsonErrorReq(req, lang, err.code as ApiErrorCode, err.status);
   }
+
+  return jsonErrorReq(req, lang, "SERVER_ERROR", 500);
+}
+
 
   const client = new OpenAI({ apiKey });
 
@@ -2411,7 +2397,7 @@ const uiReason =
   if (!rlIp.ok) {
     const retry = rlIp.retryAfterSec ?? 60;
     const msg = `Too many requests. Please retry in ~${retry}s.`;
-    return jsonErrorReq(req, "RATE_LIMITED", msg, 429, { "Retry-After": String(retry) });
+return jsonErrorReq(req, lang, "RATE_LIMITED", 429, { "Retry-After": String(retry) });
   }
 
   // 2) Apply gate-token rate limit (hash the token; never store raw)
@@ -2421,7 +2407,7 @@ const uiReason =
   if (!rlGate.ok) {
     const retry = rlGate.retryAfterSec ?? 60;
     const msg = `Too many requests. Please retry in ~${retry}s.`;
-    return jsonErrorReq(req, "RATE_LIMITED", msg, 429, { "Retry-After": String(retry) });
+return jsonErrorReq(req, lang, "RATE_LIMITED", 429, { "Retry-After": String(retry) });
   }
 
 
@@ -2434,7 +2420,7 @@ const uiReason =
 
     if (extracted.kind === "excel") {
       const buf = extracted.workbookBuf;
-      if (!buf || !buf.length) return jsonErrorReq(req, "EMPTY_INPUT", "Please upload a non-empty workbook.", 400);
+if (!buf || !buf.length) return jsonErrorReq(req, lang, "EMPTY_INPUT", 400);
 
       candidates = await withTimeout(
         Promise.resolve(buildCandidatesFromWorkbook(buf)),
@@ -2443,7 +2429,7 @@ const uiReason =
       );
     } else {
       const raw = String(extracted.rawText ?? "").trim();
-      if (!raw) return jsonErrorReq(req, "EMPTY_INPUT", "Please paste or upload some numbers.", 400);
+if (!raw) return jsonErrorReq(req, lang, "EMPTY_INPUT", 400);
 
       if (extracted.kind === "paste") assertPasteSize(raw);
 
@@ -2483,7 +2469,7 @@ const uiReason =
     }
 
     if (!candidates.length) {
-      return jsonErrorReq(req, "EXCEL_PARSE_FAILED", "Could not detect any table-like content in the uploaded file.", 422);
+return jsonErrorReq(req, lang, "EXCEL_PARSE_FAILED", 422);
     }
 
     candidates.sort((a, b) => b.score - a.score);
@@ -2529,8 +2515,7 @@ const warningText = cappedRaw + "\n\n" + rowsToTSV(best.headers, best.rows, 200)
 
     if (best.score < 0.45) limitations.push("Table detection confidence is low; column meanings may be ambiguous.");
 // Language for this request (Accept-Language, with optional ?lang= override)
-const lang = pickPreferredLang(req);      // e.g. "it"
-const langHuman = langName(lang);         // e.g. "Italian"
+const langHuman = langName(lang); 
 
 // ✅ System prompt: force language for content, keep headers in English (your parser/UI depends on these)
 const system = `
@@ -2629,12 +2614,12 @@ INSTRUCTIONS:
         temperature: 0.2,
       });
     } catch {
-      return jsonErrorReq(req, "UPSTREAM_FAILURE", "Analysis provider error. Please try again.", 503);
+return jsonErrorReq(req, lang, "UPSTREAM_FAILURE", 503);
     }
 
     let explanationRaw = resp.output_text?.trim() ?? "";
     if (!explanationRaw) {
-      return jsonErrorReq(req, "UPSTREAM_FAILURE", "No output generated. Try again.", 502);
+return jsonErrorReq(req, lang, "UPSTREAM_FAILURE", 502);
     }
 
     let cleaned = stripEvidenceStrengthBlock(explanationRaw);
@@ -2661,7 +2646,7 @@ If unsure, write concise content under the correct header and explicitly state u
           temperature: 0.0,
         });
       } catch {
-        return jsonErrorReq(req, "UPSTREAM_FAILURE", "Analysis provider error. Please try again.", 503);
+return jsonErrorReq(req, lang, "UPSTREAM_FAILURE", 503);
       }
 
       const raw2 = resp2.output_text?.trim() ?? "";
@@ -2669,12 +2654,8 @@ If unsure, write concise content under the correct header and explicitly state u
       missing = missingRequiredHeaders(cleaned);
 
       if (missing.length) {
-        return jsonErrorReq(
-          req,
-          "BAD_OUTPUT_FORMAT",
-          "Model output did not match the required format. Please try again (or simplify the input).",
-          502
-        );
+return jsonErrorReq(req, lang, "BAD_OUTPUT_FORMAT", 502);
+
       }
     }
 
@@ -2706,13 +2687,14 @@ const explanation = `${cleaned}\n\nEvidence strength: ${confidence.level} – ${
 
     if (!isKnown) {
       console.error("Unhandled /api/explain error:", err);
-      return jsonErrorReq(req, "SERVER_ERROR", "Server error. Please try again.", 500);
+return jsonErrorReq(req, lang, "SERVER_ERROR", 500);
     }
 
     const code: ApiErrorCode = err.code;
     const status: number = err.status;
 
     const msg = String(err.message ?? "Server error").slice(0, 500);
-    return jsonErrorReq(req, code, msg, status);
+    return jsonErrorReq(req, lang, code, status);
+
   }
 }

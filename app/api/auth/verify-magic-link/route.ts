@@ -1,3 +1,4 @@
+// src/app/api/auth/verify-magic-link/route.ts
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { Redis } from "@upstash/redis";
@@ -29,7 +30,9 @@ function verifySignedToken(token: string, magicSecret: string) {
     const pad = "=".repeat((4 - (body.length % 4 || 4)) % 4);
     const b64 = (body + pad).replace(/-/g, "+").replace(/_/g, "/");
     return JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function getCanonicalOrigin(req: Request, fallbackOrigins: string) {
@@ -45,9 +48,78 @@ function getClientIp(req: Request) {
   return req.headers.get("x-forwarded-for")?.split(",")[0] || "unknown";
 }
 
+/**
+ * Country detection:
+ * - Prefer Vercel geolocation header when deployed: x-vercel-ip-country
+ * - Fallback to Cloudflare: cf-ipcountry
+ * - Default to US (matches requirement: "any other country defaults to USD")
+ */
+function getRequestCountry(req: Request): string {
+  const c1 = req.headers.get("x-vercel-ip-country");
+  if (c1 && c1.trim()) return c1.trim().toUpperCase();
+
+  const c2 = req.headers.get("cf-ipcountry");
+  if (c2 && c2.trim()) return c2.trim().toUpperCase();
+
+  return "US";
+}
+
+const EU_COUNTRIES = new Set([
+  "AT",
+  "BE",
+  "BG",
+  "HR",
+  "CY",
+  "CZ",
+  "DK",
+  "EE",
+  "FI",
+  "FR",
+  "DE",
+  "GR",
+  "HU",
+  "IE",
+  "IT",
+  "LV",
+  "LT",
+  "LU",
+  "MT",
+  "NL",
+  "PL",
+  "PT",
+  "RO",
+  "SK",
+  "SI",
+  "ES",
+  "SE",
+]);
+
+function pickMonthlyPriceIdForCountry(country: string) {
+  if (country === "GB") {
+    const priceId = process.env.STRIPE_PRICE_ID_MONTHLY_GBP;
+    if (!priceId) throw new Error("Missing STRIPE_PRICE_ID_MONTHLY_GBP.");
+    return { priceId, currency: "gbp" as const };
+  }
+
+  if (EU_COUNTRIES.has(country)) {
+    const priceId = process.env.STRIPE_PRICE_ID_MONTHLY_EURO;
+    if (!priceId) throw new Error("Missing STRIPE_PRICE_ID_MONTHLY_EURO.");
+    return { priceId, currency: "eur" as const };
+  }
+
+  const priceId = process.env.STRIPE_PRICE_ID_MONTHLY_USD;
+  if (!priceId) throw new Error("Missing STRIPE_PRICE_ID_MONTHLY_USD.");
+  return { priceId, currency: "usd" as const };
+}
+
 type SessionPayload = {
-  v: 1; email: string; stripeCustomerId: string; iat: number; sid: string;
-  trialEndsAt?: number | null; trialSubscriptionId?: string | null;
+  v: 1;
+  email: string;
+  stripeCustomerId: string;
+  iat: number;
+  sid: string;
+  trialEndsAt?: number | null;
+  trialSubscriptionId?: string | null;
 };
 
 function signSessionCookie(session: SessionPayload, secret: string) {
@@ -61,7 +133,13 @@ function signSessionCookie(session: SessionPayload, secret: string) {
  * -------------------------- */
 
 export async function GET(req: Request) {
-  const { MAGIC_LINK_SECRET, STRIPE_SECRET_KEY, STRIPE_PRICE_ID_MONTHLY, APP_ORIGINS, NODE_ENV } = process.env;
+  const {
+    MAGIC_LINK_SECRET,
+    STRIPE_SECRET_KEY,
+    APP_ORIGINS,
+    NODE_ENV,
+  } = process.env;
+
   const origin = getCanonicalOrigin(req, APP_ORIGINS || "");
   const isDev = NODE_ENV === "development";
   const url = new URL(req.url);
@@ -77,7 +155,11 @@ export async function GET(req: Request) {
     const token = url.searchParams.get("token") || "";
 
     // 1) Rate Limit
-    const ratelimit = new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(20, "5 m"), prefix: "emn:auth:verify" });
+    const ratelimit = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(20, "5 m"),
+      prefix: "emn:auth:verify",
+    });
     const rl = await ratelimit.limit(getClientIp(req));
     if (!rl.success) return NextResponse.redirect(`${origin}/?magic=error&reason=rate_limited`);
 
@@ -96,9 +178,16 @@ export async function GET(req: Request) {
     await redis.set(nonceKey, "1", { ex: MAGIC_NONCE_TTL_SECONDS });
 
     const baseSession: SessionPayload = {
-      v: 1, email: payload.email, stripeCustomerId: payload.stripeCustomerId,
-      iat: nowSec, sid: createHash("sha256").update(payload.nonce).digest("hex").slice(0, 12),
+      v: 1,
+      email: payload.email,
+      stripeCustomerId: payload.stripeCustomerId,
+      iat: nowSec,
+      sid: createHash("sha256").update(payload.nonce).digest("hex").slice(0, 12),
     };
+
+    // ✅ Determine pricing by country (GB=>GBP, EU=>EUR, else=>USD)
+    const country = getRequestCountry(req);
+    const { priceId, currency } = pickMonthlyPriceIdForCountry(country);
 
     // --- TRIAL Intent ---
     if (payload.intent === "trial") {
@@ -113,20 +202,40 @@ export async function GET(req: Request) {
       }
 
       // FIXED: Unique Idempotency Keys
-      const sub = await stripe.subscriptions.create({
-        customer: payload.stripeCustomerId,
-        items: [{ price: STRIPE_PRICE_ID_MONTHLY!, quantity: 1 }],
-        trial_period_days: TRIAL_DAYS,
-        cancel_at_period_end: true,
-      }, { idempotencyKey: `sub_${payload.nonce}` });
+      const sub = await stripe.subscriptions.create(
+        {
+          customer: payload.stripeCustomerId,
+          items: [{ price: priceId, quantity: 1 }],
+          trial_period_days: TRIAL_DAYS,
+          cancel_at_period_end: true,
+          metadata: {
+            product: "explain_my_numbers",
+            created_by: "verify_magic_link_trial",
+            email: payload.email,
+            pricing_country: country,
+            pricing_currency: currency,
+            pricing_price_id: priceId,
+          },
+        },
+        { idempotencyKey: `sub_${payload.nonce}` }
+      );
 
-      await stripe.customers.update(payload.stripeCustomerId, { 
-        metadata: { ...md, emn_trial_used: "1", emn_trial_used_at: String(nowSec) } 
-      }, { idempotencyKey: `cust_${payload.nonce}` });
+      await stripe.customers.update(
+        payload.stripeCustomerId,
+        {
+          metadata: { ...md, emn_trial_used: "1", emn_trial_used_at: String(nowSec) },
+        },
+        { idempotencyKey: `cust_${payload.nonce}` }
+      );
 
       const res = NextResponse.redirect(`${origin}/?magic=success&intent=trial`);
-      setAuthCookie(res, { ...baseSession, trialEndsAt: sub.trial_end, trialSubscriptionId: sub.id }, MAGIC_LINK_SECRET!, isDev);
-      
+      setAuthCookie(
+        res,
+        { ...baseSession, trialEndsAt: sub.trial_end, trialSubscriptionId: sub.id },
+        MAGIC_LINK_SECRET!,
+        isDev
+      );
+
       // Secondary cookie for frontend countdowns
       res.cookies.set({
         name: "emn_trial_ends",
@@ -145,15 +254,23 @@ export async function GET(req: Request) {
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: payload.stripeCustomerId,
-      line_items: [{ price: STRIPE_PRICE_ID_MONTHLY!, quantity: 1 }],
+      line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${origin}/?subscribe=success`,
       cancel_url: `${origin}/?subscribe=cancel`,
+      allow_promotion_codes: true,
+      metadata: {
+        product: "explain_my_numbers",
+        created_by: "verify_magic_link_subscribe",
+        email: payload.email,
+        pricing_country: country,
+        pricing_currency: currency,
+        pricing_price_id: priceId,
+      },
     });
 
     const res = NextResponse.redirect(checkout.url!, { status: 303 });
     setAuthCookie(res, baseSession, MAGIC_LINK_SECRET!, isDev);
     return res;
-
   } catch (e) {
     console.error("VERIFY_ERROR:", e);
     return NextResponse.redirect(`${origin}/?magic=error&reason=server`);
