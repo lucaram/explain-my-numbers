@@ -1124,19 +1124,24 @@ function ElegantAnalysis({
           map[lvl ?? "null"]
         )}
       >
-        <span
-          className={cn(
-            "h-1.5 w-1.5 rounded-full",
-            lvl === "High"
-              ? "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.40)]"
-              : lvl === "Medium"
-              ? "bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.30)]"
-              : lvl === "Low"
-              ? "bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.30)]"
-              : "bg-zinc-400"
-          )}
-        />
-<span> {pillText}</span>
+<span
+  className={cn(
+    "h-1.5 w-1.5 rounded-full",
+
+    lvl === "High"
+      ? "bg-emerald-600 md:bg-emerald-500 " +
+        "shadow-[0_0_0_rgba(0,0,0,0)] md:shadow-[0_0_12px_rgba(16,185,129,0.40)]"
+      : lvl === "Medium"
+      ? "bg-amber-600 md:bg-amber-500 " +
+        "shadow-[0_0_0_rgba(0,0,0,0)] md:shadow-[0_0_12px_rgba(245,158,11,0.30)]"
+      : lvl === "Low"
+      ? "bg-rose-600 md:bg-rose-500 " +
+        "shadow-[0_0_0_rgba(0,0,0,0)] md:shadow-[0_0_12px_rgba(244,63,94,0.30)]"
+      : "bg-zinc-500 md:bg-zinc-400"
+  )}
+/>
+<span>{pillText}</span>
+
 
 
         {typeof pct === "number" && (
