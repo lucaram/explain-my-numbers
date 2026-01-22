@@ -1114,59 +1114,26 @@ function ElegantAnalysis({
     const pillText = levelLabels[lvlKey] ?? levelLabels.Unknown;
 
     return (
-<span
-  className={cn(
-    "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border",
-    "text-[11px] font-black uppercase tracking-[0.18em]",
-    "shadow-[0_1px_0_rgba(255,255,255,0.32)] dark:shadow-[0_1px_0_rgba(255,255,255,0.08)]",
-    "transition-transform duration-200 will-change-transform",
-    "hover:translate-y-[-1px]",
-
-    // ✅ explicit, theme-safe pill styling (DO NOT use map here)
-    lvl === "High"
-      ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-emerald-500/25"
-      : lvl === "Medium"
-      ? "bg-amber-500/10 text-amber-900 dark:text-amber-200 border-amber-500/25"
-      : lvl === "Low"
-      ? "bg-rose-500/10 text-rose-800 dark:text-rose-200 border-rose-500/25"
-      : "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200 border-zinc-500/25"
-  )}
->
-  <span
-    className={cn(
-      "h-1.5 w-1.5 rounded-full",
-      // ✅ theme-safe dot (no md:bg swap)
-      lvl === "High"
-        ? "bg-emerald-600 dark:bg-emerald-400"
-        : lvl === "Medium"
-        ? "bg-amber-600 dark:bg-amber-400"
-        : lvl === "Low"
-        ? "bg-rose-600 dark:bg-rose-400"
-        : "bg-zinc-500 dark:bg-zinc-400"
-    )}
-  />
-
-  {/* ✅ inherits correct text color from the pill */}
-  <span className="text-[12px] font-semibold leading-none">{pillText}</span>
+    <div className="flex items-center gap-2">
+  <ElegantPill level={lvl} lang={lang} />
 
   {typeof pct === "number" && (
     <span
       className={cn(
-        "ml-1 px-2 py-0.5 rounded-full border text-[10px] font-black tracking-[0.14em]",
-        // ✅ make the % chip match the main pill theme colors too
+        "px-2 py-0.5 rounded-full border text-[10px] font-black tracking-[0.14em]",
         lvl === "High"
-          ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
+          ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-emerald-500/25"
           : lvl === "Medium"
-          ? "border-amber-500/20 bg-amber-500/10 text-amber-900 dark:text-amber-200"
+          ? "bg-amber-500/10 text-amber-900 dark:text-amber-200 border-amber-500/25"
           : lvl === "Low"
-          ? "border-rose-500/20 bg-rose-500/10 text-rose-800 dark:text-rose-200"
-          : "border-zinc-500/20 bg-zinc-500/10 text-zinc-800 dark:text-zinc-200"
+          ? "bg-rose-500/10 text-rose-800 dark:text-rose-200 border-rose-500/25"
+          : "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200 border-zinc-500/25"
       )}
     >
       {pct}%
     </span>
   )}
-</span>
+</div>
 
     );
   };
