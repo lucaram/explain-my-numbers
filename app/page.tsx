@@ -1140,7 +1140,7 @@ function ElegantAnalysis({
       : "bg-zinc-500 md:bg-zinc-400"
   )}
 />
-<span>{pillText}</span>
+<span>{UI_LABELS.confidence[langNorm] ?? UI_LABELS.confidence.en} · {pillText}</span>
 
 
 
