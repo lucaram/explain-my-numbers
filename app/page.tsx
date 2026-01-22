@@ -1136,7 +1136,7 @@ function ElegantAnalysis({
               : "bg-zinc-400"
           )}
         />
-<span>{UI_LABELS.confidence[langNorm] ?? UI_LABELS.confidence.en} · {pillText}</span>
+<span> {pillText}</span>
 
 
         {typeof pct === "number" && (
@@ -1312,12 +1312,29 @@ function ElegantPill({
   level: "Low" | "Medium" | "High" | null;
   lang?: string;
 }) {
-  const config: Record<string, string> = {
-    High: "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-emerald-500/25",
-    Medium: "bg-amber-500/10 text-amber-900 dark:text-amber-200 border-amber-500/25",
-    Low: "bg-rose-500/10 text-rose-800 dark:text-rose-200 border-rose-500/25",
-    null: "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200 border-zinc-500/25",
-  };
+const config: Record<string, string> = {
+  High:
+    // ✅ mobile: solid, stable colors (no /10 wash)
+    "bg-emerald-50 text-emerald-800 border-emerald-200 " +
+    "dark:bg-emerald-950/55 dark:text-emerald-200 dark:border-emerald-500/30 " +
+    // ✅ desktop+: keep EXACT current look
+    "md:bg-emerald-500/10 md:text-emerald-800 md:dark:text-emerald-200 md:border-emerald-500/25",
+
+  Medium:
+    "bg-amber-50 text-amber-900 border-amber-200 " +
+    "dark:bg-amber-950/55 dark:text-amber-200 dark:border-amber-500/30 " +
+    "md:bg-amber-500/10 md:text-amber-900 md:dark:text-amber-200 md:border-amber-500/25",
+
+  Low:
+    "bg-rose-50 text-rose-800 border-rose-200 " +
+    "dark:bg-rose-950/55 dark:text-rose-200 dark:border-rose-500/30 " +
+    "md:bg-rose-500/10 md:text-rose-800 md:dark:text-rose-200 md:border-rose-500/25",
+
+  null:
+    "bg-zinc-50 text-zinc-800 border-zinc-200 " +
+    "dark:bg-zinc-900/55 dark:text-zinc-200 dark:border-white/15 " +
+    "md:bg-zinc-500/10 md:text-zinc-800 md:dark:text-zinc-200 md:border-zinc-500/25",
+};
 
   const langNorm = normalizeLang(lang);
 
@@ -3342,18 +3359,30 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                 <VisualAnalysisLoader uiLang={uiLang} />
               ) : result?.ok ? (
                 <div>
-                  <div className="flex justify-between items-center mb-10 print:mb-6">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-2xl bg-blue-500 flex items-center justify-center print:hidden shadow-[0_18px_60px_rgba(59,130,246,0.35)]">
-                        <BarChart3 size={16} className="text-white" />
-                      </div>
-<h3 className="text-[22px] md:text-2xl font-black tracking-[-0.02em]">
-  {UI_LABELS.synthesis[uiLang] ?? UI_LABELS.synthesis.en}
-</h3>
-                    </div>
+                  <div className="mb-10 print:mb-6">
+  <div className="flex items-center justify-between md:justify-between">
+    <div className="flex items-center gap-3">
+      <div className="w-9 h-9 rounded-2xl bg-blue-500 flex items-center justify-center print:hidden shadow-[0_18px_60px_rgba(59,130,246,0.35)]">
+        <BarChart3 size={16} className="text-white" />
+      </div>
 
-                    <ElegantPill level={evidence.level} lang={result.lang} />
-                  </div>
+      <h3 className="text-[22px] md:text-2xl font-black tracking-[-0.02em]">
+        {UI_LABELS.synthesis[uiLang] ?? UI_LABELS.synthesis.en}
+      </h3>
+    </div>
+
+    {/* Desktop pill (unchanged behaviour) */}
+    <div className="hidden md:block">
+      <ElegantPill level={evidence.level} lang={result.lang} />
+    </div>
+  </div>
+
+  {/* Mobile pill: below Synthesis */}
+  <div className="mt-3 md:hidden">
+    <ElegantPill level={evidence.level} lang={result.lang} />
+  </div>
+</div>
+
 
                   <DetectedSheet meta={detectedSheetMeta} theme={theme} />
                   <WarningsPanel warnings={result.warnings} theme={theme} />
