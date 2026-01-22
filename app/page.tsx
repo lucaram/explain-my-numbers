@@ -1102,26 +1102,32 @@ function ElegantAnalysis({
   ]);
 
   // ✅ Pure render helper (no parsing inside)
-  const pill = (lvl: "Low" | "Medium" | "High" | null, pct?: number) => {
-    const map: Record<string, string> = {
-      High: "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-emerald-500/25",
-      Medium: "bg-amber-500/10 text-amber-900 dark:text-amber-200 border-amber-500/25",
-      Low: "bg-rose-500/10 text-rose-800 dark:text-rose-200 border-rose-500/25",
-      null: "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200 border-zinc-500/25",
-    };
-
-    const lvlKey = (lvl ?? "Unknown") as "High" | "Medium" | "Low" | "Unknown";
-    const pillText = levelLabels[lvlKey] ?? levelLabels.Unknown;
-
-    return (
-    <div className="flex items-center gap-2">
-  <ElegantPill level={lvl} lang={lang} />
-
-
-</div>
-
-    );
+ const pill = (lvl: "Low" | "Medium" | "High" | null, pct?: number) => {
+  const map: Record<string, string> = {
+    High: "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200 border-emerald-500/25",
+    Medium: "bg-amber-500/10 text-amber-900 dark:text-amber-200 border-amber-500/25",
+    Low: "bg-rose-500/10 text-rose-800 dark:text-rose-200 border-rose-500/25",
+    null: "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200 border-zinc-500/25",
   };
+
+  const lvlKey = (lvl ?? "Unknown") as "High" | "Medium" | "Low" | "Unknown";
+  const pillText = levelLabels[lvlKey] ?? levelLabels.Unknown;
+
+  return (
+    <div className="flex items-center gap-2">
+<div className="pl-6">
+  <ElegantPill
+    level={lvl}
+    lang={lang}
+    prefix={false}
+    pct={pct}
+    pctSeparator=" - "
+  />
+</div>
+    </div>
+  );
+};
+
 
   const sections = text.split(
     /(Summary:|What changed:|Underlying observations:|Why it likely changed:|What it means:|What NOT to conclude:|Evidence strength:)/g
@@ -1193,8 +1199,15 @@ function ElegantAnalysis({
                         theme === "dark" ? "text-white/90" : "text-zinc-800"
                       )}
                     >
-                      <span className="font-semibold mr-1">{reasonLabel}</span>
-                      {cleanNote || trimmed}
+<span
+  className="block pl-7 relative before:content-['•'] before:absolute before:left-0
+             before:text-blue-600/40 dark:before:text-blue-400/40"
+>
+  <span className="font-semibold mr-1">{reasonLabel}</span>
+  {cleanNote || trimmed}
+</span>
+
+
                     </p>
                   </div>
                 );
@@ -1278,37 +1291,46 @@ function VisualAnalysisLoader({ uiLang }: { uiLang: string }) {
 function ElegantPill({
   level,
   lang,
+  prefix = true, // ✅ default keeps current behaviour: "Confidence · X"
+  pct, // ✅ optional percent (e.g. 58)
+  pctSeparator = " - ", // ✅ "Low - 58%"
 }: {
   level: "Low" | "Medium" | "High" | null;
   lang?: string;
+  prefix?: boolean;
+  pct?: number;
+  pctSeparator?: string;
 }) {
-const config: Record<string, string> = {
-  High:
-    // ✅ mobile: solid, stable colors (no /10 wash)
-    "bg-emerald-50 text-emerald-800 border-emerald-200 " +
-    "dark:bg-emerald-950/55 dark:text-emerald-200 dark:border-emerald-500/30 " +
-    // ✅ desktop+: keep EXACT current look
-    "md:bg-emerald-500/10 md:text-emerald-800 md:dark:text-emerald-200 md:border-emerald-500/25",
+  const config: Record<string, string> = {
+    High:
+      // ✅ mobile: solid, stable colors (no /10 wash)
+      "bg-emerald-50 text-emerald-800 border-emerald-200 " +
+      "dark:bg-emerald-950/55 dark:text-emerald-200 dark:border-emerald-500/30 " +
+      // ✅ desktop+: keep EXACT current look
+      "md:bg-emerald-500/10 md:text-emerald-800 md:dark:text-emerald-200 md:border-emerald-500/25",
 
-  Medium:
-    "bg-amber-50 text-amber-900 border-amber-200 " +
-    "dark:bg-amber-950/55 dark:text-amber-200 dark:border-amber-500/30 " +
-    "md:bg-amber-500/10 md:text-amber-900 md:dark:text-amber-200 md:border-amber-500/25",
+    Medium:
+      "bg-amber-50 text-amber-900 border-amber-200 " +
+      "dark:bg-amber-950/55 dark:text-amber-200 dark:border-amber-500/30 " +
+      "md:bg-amber-500/10 md:text-amber-900 md:dark:text-amber-200 md:border-amber-500/25",
 
-  Low:
-    "bg-rose-50 text-rose-800 border-rose-200 " +
-    "dark:bg-rose-950/55 dark:text-rose-200 dark:border-rose-500/30 " +
-    "md:bg-rose-500/10 md:text-rose-800 md:dark:text-rose-200 md:border-rose-500/25",
+    Low:
+      "bg-rose-50 text-rose-800 border-rose-200 " +
+      "dark:bg-rose-950/55 dark:text-rose-200 dark:border-rose-500/30 " +
+      "md:bg-rose-500/10 md:text-rose-800 md:dark:text-rose-200 md:border-rose-500/25",
 
-  null:
-    "bg-zinc-50 text-zinc-800 border-zinc-200 " +
-    "dark:bg-zinc-900/55 dark:text-zinc-200 dark:border-white/15 " +
-    "md:bg-zinc-500/10 md:text-zinc-800 md:dark:text-zinc-200 md:border-zinc-500/25",
-};
+    null:
+      "bg-zinc-50 text-zinc-800 border-zinc-200 " +
+      "dark:bg-zinc-900/55 dark:text-zinc-200 dark:border-white/15 " +
+      "md:bg-zinc-500/10 md:text-zinc-800 md:dark:text-zinc-200 md:border-zinc-500/25",
+  };
 
   const langNorm = normalizeLang(lang);
 
-  const LEVEL_LABELS: Record<string, Record<"High" | "Medium" | "Low" | "Unknown", string>> = {
+  const LEVEL_LABELS: Record<
+    string,
+    Record<"High" | "Medium" | "Low" | "Unknown", string>
+  > = {
     en: { High: "High", Medium: "Medium", Low: "Low", Unknown: "Unknown" },
     it: { High: "Alta", Medium: "Media", Low: "Bassa", Unknown: "Sconosciuta" },
     fr: { High: "Élevée", Medium: "Moyenne", Low: "Faible", Unknown: "Inconnue" },
@@ -1343,8 +1365,14 @@ const config: Record<string, string> = {
   };
 
   const labels = LEVEL_LABELS[langNorm] ?? LEVEL_LABELS.en;
-  const lvlKey = ((level ?? "Unknown") as "High" | "Medium" | "Low" | "Unknown");
+  const lvlKey = (level ?? "Unknown") as "High" | "Medium" | "Low" | "Unknown";
   const pillText = labels[lvlKey] ?? labels.Unknown;
+
+  const left = prefix
+    ? `${UI_LABELS.confidence[langNorm] ?? UI_LABELS.confidence.en} · `
+    : "";
+
+  const right = typeof pct === "number" ? `${pctSeparator}${pct}%` : "";
 
   return (
     <span
@@ -1356,24 +1384,30 @@ const config: Record<string, string> = {
         config[level ?? "null"]
       )}
     >
-      <span
-        className={cn(
-          "h-1.5 w-1.5 rounded-full",
-          level === "High"
-            ? "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.40)]"
-            : level === "Medium"
-            ? "bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.30)]"
-            : level === "Low"
-            ? "bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.30)]"
-            : "bg-zinc-400"
-        )}
-      />
-    <span>{UI_LABELS.confidence[langNorm] ?? UI_LABELS.confidence.en} · {pillText}</span>
+{prefix && (
+  <span
+    className={cn(
+      "h-1.5 w-1.5 rounded-full",
+      level === "High"
+        ? "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.40)]"
+        : level === "Medium"
+        ? "bg-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.30)]"
+        : level === "Low"
+        ? "bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.30)]"
+        : "bg-zinc-400"
+    )}
+  />
+)}
 
-
+      <span>
+        {left}
+        {pillText}
+        {right}
+      </span>
     </span>
   );
 }
+
 
 
 function IconButton({
