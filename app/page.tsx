@@ -1,5 +1,7 @@
 // src/app/page.tsx
 "use client";
+import { I18N_LOADER_TEXTS } from "@/lib/i18n/loaderTexts";
+
 import { tUi18 } from "@/lib/i18n/uiCopy";
 import { I18N_UI_TEXTS } from "@/lib/i18n/inputBoxAndChips";
 import { I18N_MESSAGES } from "@/lib/i18n/errorsAndMessages";
@@ -1258,13 +1260,14 @@ function ElegantAnalysis({
 
 
 function VisualAnalysisLoader({ uiLang }: { uiLang: string }) {
+  const loaderLang = (uiLang in I18N_LOADER_TEXTS ? uiLang : "en") as keyof typeof I18N_LOADER_TEXTS;
+
   return (
     <div className="space-y-8 animate-in fade-in zoom-in-95 duration-700 motion-reduce:animate-none">
       <div className="flex items-center gap-3">
         <div className="h-2 w-2 rounded-full bg-blue-500 animate-ping motion-reduce:animate-none" />
         <span className="text-[11px] font-bold tracking-[0.26em] text-blue-600/80 dark:text-blue-400/80">
           {UI_LABELS.processingVectors[uiLang] ?? UI_LABELS.processingVectors.en}
-
         </span>
       </div>
 
@@ -1279,14 +1282,15 @@ function VisualAnalysisLoader({ uiLang }: { uiLang: string }) {
       </div>
 
       <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
-        <span className="font-semibold">Synthesising patterns</span>
-        <span className="tracking-[0.22em] uppercase text-[10px] font-bold opacity-70">
-          Please wait
+        <span className="font-semibold">{I18N_LOADER_TEXTS[loaderLang].synthesising}</span>
+        <span className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+          {I18N_LOADER_TEXTS[loaderLang].pleaseWait}
         </span>
       </div>
     </div>
   );
 }
+
 
 function ElegantPill({
   level,
@@ -1752,6 +1756,10 @@ const uiLang = useMemo(() => {
   // Priority: backend → URL override → browser → English
   return normalizeLang(fromResult || fromUrl || browserLang || "en");
 }, [result, browserLang]);
+const loaderLang = (uiLang in I18N_LOADER_TEXTS
+  ? uiLang
+  : "en") as keyof typeof I18N_LOADER_TEXTS;
+
 const P = getPaywallCopy(uiLang);
 const B = getBillingStatusLabels(uiLang);
 const PRICE_PER_MONTH = `${monthlyPrice}${P.perMonth}`;

@@ -5,10 +5,11 @@ import { createHmac, randomBytes, createHash } from "crypto";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
 import { sendMagicLinkEmail } from "@/lib/email";
+import { tAuthTrial } from "@/lib/i18n/authTrialErrors";
 
 export const runtime = "nodejs";
 
-const TRIAL_DAYS = 0;
+const TRIAL_DAYS = 3;
 const MAGIC_LINK_TTL_SECONDS = 15 * 60; // 15 minutes
 
 function isValidEmail(email: string) {
@@ -134,7 +135,6 @@ function getCanonicalOriginForEmail(req: Request, appOrigins: string) {
   return (firstOrigin || "https://example.com").replace(/\/$/, "");
 }
 
-
 export async function POST(req: Request) {
   try {
     const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
@@ -156,8 +156,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Missing email configuration." }, { status: 500 });
     }
 
+    // ✅ Determine language (query param wins, then Accept-Language)
+    const url = new URL(req.url);
+    const lang = url.searchParams.get("lang") || req.headers.get("accept-language") || "en";
+
     const stripe = new Stripe(STRIPE_SECRET_KEY);
-    
+
     const redis = Redis.fromEnv();
 
     // --------------------------
@@ -193,7 +197,7 @@ export async function POST(req: Request) {
 
     if (!rawEmail || !isValidEmail(rawEmail)) {
       return NextResponse.json(
-        { ok: false, error: "Please enter a valid email address.", error_code: "INVALID_EMAIL" },
+        { ok: false, error: tAuthTrial(lang, "INVALID_EMAIL"), error_code: "INVALID_EMAIL" },
         { status: 400 }
       );
     }
@@ -202,7 +206,7 @@ export async function POST(req: Request) {
     if (!rlEmail.ok) {
       const retry = rlEmail.retryAfterSec ?? 1800;
       return NextResponse.json(
-        { ok: false, error: "Too many requests for this email. Please try again later.", error_code: "RATE_LIMITED" },
+        { ok: false, error: tAuthTrial(lang, "RATE_LIMITED_EMAIL"), error_code: "RATE_LIMITED" },
         { status: 429, headers: { "Retry-After": String(retry) } }
       );
     }
@@ -238,7 +242,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Free trial is available only for first-time users. Please subscribe to continue.",
+          error: tAuthTrial(lang, "TRIAL_NOT_ELIGIBLE"),
           error_code: "TRIAL_NOT_ELIGIBLE",
         },
         { status: 409 }
@@ -249,7 +253,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           ok: false,
-          error: "You’ve already used your free trial. Please subscribe to continue.",
+          error: tAuthTrial(lang, "TRIAL_ALREADY_USED"),
           error_code: "TRIAL_ALREADY_USED",
         },
         { status: 409 }
@@ -285,6 +289,7 @@ export async function POST(req: Request) {
       verifyUrl,
       mode: "trial",
       trialDays: TRIAL_DAYS,
+      lang: lang,
     });
 
     return NextResponse.json({

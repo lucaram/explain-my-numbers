@@ -1806,7 +1806,9 @@ function computeConfidence(candidate: TableCandidate, profile: ProfileMeta) {
   const hasTime = !!profile.detected.time_col;
   const hasGroup = profile.detected.group_cols.length > 0;
 
-  const numericCols = profile.columns.filter((c) => c.inferred_type === "numeric" || c.inferred_type === "mixed");
+  const numericCols = profile.columns.filter(
+    (c) => c.inferred_type === "numeric" || c.inferred_type === "mixed"
+  );
   const avgMissing =
     numericCols.length > 0
       ? numericCols.reduce((s, c) => s + (c.missing_pct ?? 0), 0) / numericCols.length
@@ -1814,28 +1816,37 @@ function computeConfidence(candidate: TableCandidate, profile: ProfileMeta) {
 
   const score2 = Number(score.toFixed(2));
 
+  const base = {
+    score: score2,
+    metrics,
+    hasTime,
+    hasGroup,
+    avgMissing: Number.isFinite(avgMissing) ? Math.round(avgMissing * 10) / 10 : 100,
+  };
+
   if (score >= 0.7 && metrics >= 2 && (hasTime || hasGroup) && avgMissing <= 10) {
     return {
+      ...base,
       level: "High" as const,
-      score: score2,
       reason_code: "STRUCTURE_STRONG" as const satisfies ConfidenceReasonCode,
     };
   }
 
   if (score >= 0.45 && metrics >= 1 && avgMissing <= 25) {
     return {
+      ...base,
       level: "Medium" as const,
-      score: score2,
       reason_code: "STRUCTURE_USABLE" as const satisfies ConfidenceReasonCode,
     };
   }
 
   return {
+    ...base,
     level: "Low" as const,
-    score: score2,
     reason_code: "STRUCTURE_WEAK" as const satisfies ConfidenceReasonCode,
   };
 }
+
 
 function localizeConfidenceNote(lang: string, code: ConfidenceReasonCode, score: number) {
   const L = (lang || "en").toLowerCase();
@@ -2091,6 +2102,70 @@ function localizeConfidenceNote(lang: string, code: ConfidenceReasonCode, score:
   const dict = T[L] ?? T.en;
   return dict[code](score);
 }
+
+function buildConfidenceFactorsEn(params: {
+  confidence: ReturnType<typeof computeConfidence>;
+  profile: ProfileMeta;
+  warnings: { total: number; categories: WarningCategory[] };
+}) {
+  const { confidence, profile, warnings } = params;
+
+  const out: string[] = [];
+
+  // 1) Structure signals (deterministic)
+  if (!profile.detected.time_col) out.push("No clear time column detected");
+  if ((confidence.metrics ?? 0) < 2) out.push("Few numeric metric columns detected");
+
+  const miss = Number(confidence.avgMissing ?? 100);
+  if (Number.isFinite(miss) && miss >= 25) out.push(`High missingness in numeric columns (~${Math.round(miss)}%)`);
+
+  // 2) Sanity checks (deterministic; use your own warning labels)
+  const top = warnings.categories?.[0];
+  if (top?.label) out.push(`Sanity checks: ${top.label}`);
+
+  // Keep it tight
+  return out.slice(0, 3);
+}
+
+async function translateConfidenceFactors(
+  client: OpenAI,
+  langHuman: string,
+  factorsEn: string[]
+): Promise<string> {
+  if (!factorsEn.length) return "";
+
+  try {
+    const r = await client.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
+        {
+          role: "system",
+          content: `You translate short UI helper text into ${langHuman}.
+Rules:
+- Output MUST be a single line.
+- Keep it short, professional, non-technical.
+- Start with a translated equivalent of "Key factors:" (include the colon).
+- Separate items with "; ".
+- Do NOT add quotes or extra commentary.`,
+        },
+        {
+          role: "user",
+          content: `Translate these factors:\n${JSON.stringify(factorsEn)}`,
+        },
+      ],
+      store: false,
+      max_output_tokens: 80,
+      temperature: 0,
+    });
+
+    const line = (r.output_text ?? "").trim();
+    return line;
+  } catch {
+    // Fallback to English if translation fails (still truthful)
+    return `Key factors: ${factorsEn.join("; ")}`;
+  }
+}
+
 
 
 /** --------------------------
@@ -2659,8 +2734,23 @@ return jsonErrorReq(req, lang, "BAD_OUTPUT_FORMAT", 502);
       }
     }
 
+// Language for this request (Accept-Language, with optional ?lang= override)
+
+
 const noteLocalized = localizeConfidenceNote(lang, confidence.reason_code, confidence.score);
-const explanation = `${cleaned}\n\nEvidence strength: ${confidence.level} – ${noteLocalized}`;
+
+const factorsEn = buildConfidenceFactorsEn({
+  confidence,
+  profile,
+  warnings,
+});
+
+const factorsLocalized = await translateConfidenceFactors(client, langHuman, factorsEn);
+
+const extra = factorsLocalized ? ` ${factorsLocalized}` : "";
+
+const explanation = `${cleaned}\n\nEvidence strength: ${confidence.level} – ${noteLocalized}${extra}`;
+
 
     const okRes = NextResponse.json({
   ok: true,
