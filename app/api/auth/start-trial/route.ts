@@ -9,7 +9,7 @@ import { tAuthTrial } from "@/lib/i18n/authTrialErrors";
 
 export const runtime = "nodejs";
 
-const TRIAL_DAYS = 3;
+const TRIAL_DAYS = 7;
 const MAGIC_LINK_TTL_SECONDS = 15 * 60; // 15 minutes
 
 function isValidEmail(email: string) {

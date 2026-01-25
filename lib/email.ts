@@ -118,7 +118,7 @@ const EMAIL_COPY: Record<EmailLang, EmailCopy> = {
   en: {
     subjectTrial: (days) => `Your magic link to start your ${days}-day free trial`,
     subjectSubscribe: "Your magic link to subscribe",
-    titleTrial: "Start your free trial",
+    titleTrial: "Welcome to Explain My Numbers!",
     titleSubscribe: "Continue to subscription",
     subtitleTrial: (days) =>
       `Click the button below to start your ${days}-day trial. No card required.`,
@@ -622,7 +622,7 @@ const EMAIL_COPY: Record<EmailLang, EmailCopy> = {
   },
 };
 
-function resolveTrialDays(trialDays: unknown, fallback = 3): number {
+function resolveTrialDays(trialDays: unknown, fallback = 7): number {
   // Accept only a positive finite number; everything else falls back
   const n =
     typeof trialDays === "number"
@@ -652,7 +652,7 @@ export async function sendMagicLinkEmail({
   const isTrial = mode === "trial";
 
   // ✅ Prevent "0-day" (or NaN / negative) in emails. Change this to see a different number
-  const days = resolveTrialDays(trialDays, 3);
+  const days = resolveTrialDays(trialDays, 7);
 
   // ✅ pick language (falls back to English)
   const L = normalizeEmailLang(lang);

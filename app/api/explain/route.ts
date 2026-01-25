@@ -1,3 +1,5 @@
+// baseline before major refactoring
+
 // src/app/api/explain/route.ts
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
@@ -538,8 +540,10 @@ function jsonErrorReq(
 
 export async function OPTIONS(req: Request) {
   try {
+    // ✅ Keep same-site protection for browser contexts
     enforceSameSite(req);
-    await verifyGateTokenOrThrow(req);
+
+    // ✅ Preflight should not require X-EMN-Gate (browsers may omit custom headers on OPTIONS)
     const res = new NextResponse(null, { status: 204, headers: corsHeadersFor(req) });
     return withCors(req, res);
   } catch (err: any) {
@@ -550,6 +554,8 @@ export async function OPTIONS(req: Request) {
       : jsonErrorReq(req, lang, "SERVER_ERROR", 500);
   }
 }
+
+
 
 
 /** --------------------------
@@ -656,6 +662,13 @@ function parseDateish(raw: any): {
   const s = String(raw ?? "").trim();
   if (!s) return { ok: false, value: null, granularity: "unknown" };
 
+  // ❌ HARD STOP: pure numbers are NOT dates
+  // Prevents Date.parse("1") => 2001-01-01, Date.parse("2") => 2001-02-01
+  if (/^\d+$/.test(s)) {
+    return { ok: false, value: null, granularity: "unknown" };
+  }
+
+  // YYYY or YYYY-MM (or YYYY/MM, YYYY.MM)
   let m = s.match(/^(\d{4})([-\/.](\d{1,2}))?$/);
   if (m) {
     const y = Number(m[1]);
@@ -669,10 +682,16 @@ function parseDateish(raw: any): {
           hasYear: true,
         };
       }
-      return { ok: true, value: new Date(Date.UTC(y, 0, 1)), granularity: "year", hasYear: true };
+      return {
+        ok: true,
+        value: new Date(Date.UTC(y, 0, 1)),
+        granularity: "year",
+        hasYear: true,
+      };
     }
   }
 
+  // Month name with optional year (Jan, January 2024, etc.)
   m = s.match(/^([A-Za-z]{3,9})\s*[,\-\/]?\s*(\d{4})?$/);
   if (m) {
     const monKey = m[1].toLowerCase();
@@ -682,22 +701,63 @@ function parseDateish(raw: any): {
       if (hasYear) {
         const y = Number(m[2]);
         if (Number.isFinite(y)) {
-          return { ok: true, value: new Date(Date.UTC(y, mon, 1)), granularity: "month", hasYear: true };
+          return {
+            ok: true,
+            value: new Date(Date.UTC(y, mon, 1)),
+            granularity: "month",
+            hasYear: true,
+          };
         }
       }
-      return { ok: true, value: null, granularity: "unknown", hasYear: false, monthLabel: m[1] };
+      // Month label without year → NOT a real date
+      return {
+        ok: true,
+        value: null,
+        granularity: "unknown",
+        hasYear: false,
+        monthLabel: m[1],
+      };
     }
   }
 
-  const t = Date.parse(s);
-  if (Number.isFinite(t)) {
-    const gran =
-      /^\d{4}-\d{2}-\d{2}/.test(s) || /^\d{2}\/\d{2}\/\d{4}/.test(s) ? "day" : "unknown";
-    return { ok: true, value: new Date(t), granularity: gran, hasYear: true };
+  // ISO-like dates ONLY (explicit formats)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const t = Date.parse(s);
+    if (Number.isFinite(t)) {
+      return {
+        ok: true,
+        value: new Date(t),
+        granularity: "day",
+        hasYear: true,
+      };
+    }
   }
 
+  // European-style DD/MM/YYYY or DD-MM-YYYY
+  if (/^\d{2}[\/-]\d{2}[\/-]\d{4}$/.test(s)) {
+    const [d, m2, y] = s.split(/[\/-]/).map(Number);
+    if (
+      Number.isFinite(d) &&
+      Number.isFinite(m2) &&
+      Number.isFinite(y) &&
+      d >= 1 &&
+      d <= 31 &&
+      m2 >= 1 &&
+      m2 <= 12
+    ) {
+      return {
+        ok: true,
+        value: new Date(Date.UTC(y, m2 - 1, d)),
+        granularity: "day",
+        hasYear: true,
+      };
+    }
+  }
+
+  // ❌ Everything else is NOT a date
   return { ok: false, value: null, granularity: "unknown" };
 }
+
 
 type ColumnProfile = {
   name: string;
@@ -2183,32 +2243,44 @@ const REQUIRED_HEADERS = [
 
 function stripEvidenceStrengthBlock(text: string) {
   const lines = normalizeNewlines(text).split("\n");
-  const out: string[] = [];
 
-  const isHeading = (s: string) =>
-    /^Summary:\s*$|^What changed:\s*$|^Underlying observations:\s*$|^Why it likely changed:\s*$|^What it means:\s*$|^What NOT to conclude:\s*$|^Evidence strength:\s*$/i.test(
-      s.trim()
-    );
+  const REQUIRED = new Set([
+    "Summary:",
+    "What changed:",
+    "Underlying observations:",
+    "Why it likely changed:",
+    "What it means:",
+    "What NOT to conclude:",
+  ]);
 
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
+  const isRequiredHeaderLine = (s: string) => REQUIRED.has(s.trim());
+  const isEvidenceLine = (s: string) => /^evidence strength\s*:/i.test(s.trim());
 
-    if (/^evidence strength\s*:/i.test(line.trim())) {
-      const isJustHeader = line.trim().toLowerCase() === "evidence strength:";
-      i++;
-      if (isJustHeader) {
-        while (i < lines.length && !isHeading(lines[i])) i++;
-      }
-      continue;
+  // 1) Find the LAST "Evidence strength:" line
+  let lastIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (isEvidenceLine(lines[i])) {
+      lastIdx = i;
+      break;
     }
+  }
+  if (lastIdx === -1) return normalizeNewlines(text).trim();
 
-    out.push(line);
-    i++;
+  // 2) Only strip if everything AFTER it contains no required headers
+  // (So we don't delete mid-body content.)
+  for (let j = lastIdx + 1; j < lines.length; j++) {
+    if (isRequiredHeaderLine(lines[j])) {
+      return normalizeNewlines(text).trim();
+    }
   }
 
-  return out.join("\n").trim();
+  // 3) Also require that "Evidence strength:" is in the trailing tail
+  // meaning: only blank lines after it (or content that belongs to that block).
+  // We'll just remove from lastIdx to end.
+  const kept = lines.slice(0, lastIdx).join("\n").trimEnd();
+  return kept.trim();
 }
+
 
 function missingRequiredHeaders(text: string): string[] {
   const t = normalizeNewlines(text);
@@ -2379,18 +2451,20 @@ function buildModelPack(candidate: TableCandidate, profile: ProfileMeta) {
  * -------------------------- */
 
 export async function POST(req: Request) {
-  const lang = pickPreferredLang(req)
+  const lang = pickPreferredLang(req);
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
 return jsonErrorReq(req, lang, "CONFIG_ERROR", 500);
   }
 
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) {
-return jsonErrorReq(req, lang, "CONFIG_ERROR", 500);
+let redis: Redis;
 
-  }
+try {
+  redis = Redis.fromEnv();
+} catch {
+  return jsonErrorReq(req, lang, "CONFIG_ERROR", 500);
+}
+
 
 // Subscription / trial entitlement gate (single source of truth)
 const ent = await getEntitlementFromRequest(req);
@@ -2408,17 +2482,20 @@ if (!ent.canExplain) {
       ? getApiErrorMessage(lang, "SUBSCRIBE_TO_CONTINUE")
       : getApiErrorMessage(lang, "TRIAL_OR_SUBSCRIBE");
 
-  return NextResponse.json(
-    {
-      ok: false,
-      error_code: "NO_ENTITLEMENT",
-      error: uiError,                 // ✅ UI headline (translated)
-      reason: uiReason,               // ✅ UI helper line (translated)
-      entitlement_reason: ent.reason, // ✅ machine reason (optional but useful)
-      trialEndsAt: ent.trialEndsAt ?? null,
-    },
-    { status: 402, headers: corsHeadersFor(req) }
-  );
+const res = NextResponse.json(
+  {
+    ok: false,
+    error_code: "NO_ENTITLEMENT",
+    error: uiError,
+    reason: uiReason,
+    entitlement_reason: ent.reason,
+    trialEndsAt: ent.trialEndsAt ?? null,
+  },
+  { status: 402 }
+);
+
+return withCors(req, res);
+
 }
 
 
@@ -2445,7 +2522,7 @@ if (!ent.canExplain) {
 
   const client = new OpenAI({ apiKey });
 
-    const redis = Redis.fromEnv();
+    
 
   // IP limiter (keeps your current behavior)
   const ipRatelimit = new Ratelimit({
@@ -2471,8 +2548,8 @@ if (!ent.canExplain) {
   const rlIp = await applyRateLimit(ipRatelimit, ipKey);
   if (!rlIp.ok) {
     const retry = rlIp.retryAfterSec ?? 60;
-    const msg = `Too many requests. Please retry in ~${retry}s.`;
 return jsonErrorReq(req, lang, "RATE_LIMITED", 429, { "Retry-After": String(retry) });
+
   }
 
   // 2) Apply gate-token rate limit (hash the token; never store raw)
@@ -2481,8 +2558,8 @@ return jsonErrorReq(req, lang, "RATE_LIMITED", 429, { "Retry-After": String(retr
   const rlGate = await applyRateLimit(gateRatelimit, gateKey);
   if (!rlGate.ok) {
     const retry = rlGate.retryAfterSec ?? 60;
-    const msg = `Too many requests. Please retry in ~${retry}s.`;
 return jsonErrorReq(req, lang, "RATE_LIMITED", 429, { "Retry-After": String(retry) });
+
   }
 
 
@@ -2621,7 +2698,7 @@ What NOT to conclude:
 
 IMPORTANT:
 - Plain text only.
-- Do NOT include "Evidence strength:" anywhere.
+- Do NOT include "Evidence strength:" anywhere (the server will append it).
 - If a sanity-check summary is provided, you MUST mention it briefly near the top and explain how it could affect interpretation.
 - Use the provided PROFILE and AGGREGATES as anchors (don’t contradict them).
 - If no time column is detected, do NOT make time-based "change" claims; treat "What changed" as "Key differences / notable patterns".

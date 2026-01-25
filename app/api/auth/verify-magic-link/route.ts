@@ -8,8 +8,8 @@ import { createHmac, timingSafeEqual, createHash } from "crypto";
 export const runtime = "nodejs";
 
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "emn_session";
-const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
-const TRIAL_DAYS = 3;
+const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+const TRIAL_DAYS = 7;
 const MAGIC_NONCE_TTL_SECONDS = 15 * 60;
 
 /** --------------------------

@@ -1,3 +1,5 @@
+//baseline 
+
 // src/app/page.tsx
 "use client";
 import { I18N_LOADER_TEXTS } from "@/lib/i18n/loaderTexts";
@@ -2663,10 +2665,10 @@ const chip = buildTrialChip(billing, uiLang, PRICE_PER_MONTH);
       <main className="relative max-w-5xl mx-auto px-4 md:px-8 py-4 md:py-6 print:p-0">
         <header className="mb-4 md:mb-6 space-y-2 md:space-y-4 print:hidden">
           <div className="space-y-3">
-            <h1 className="text-5xl md:text-[5rem] font-[950] tracking-[-0.065em] leading-[0.86] md:leading-[0.80]">
-              <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Data. </span>{" "}
+            <h1 className="text-4xl md:text-[5rem] font-[950] tracking-[-0.065em] leading-[0.86] md:leading-[0.80]">
+              <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Ephemiral Data. </span>{" "}
               <span className="inline pb-[0.1em] md:pb-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-400 bg-[length:200%_auto] animate-shimmer-text">
-                Explained
+                Explained.
               </span>
             </h1>
           </div>
@@ -3836,4 +3838,5 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
     </div>
   );
 }
+
 
