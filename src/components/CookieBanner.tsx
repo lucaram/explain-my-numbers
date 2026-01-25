@@ -1275,7 +1275,7 @@ function PrivacyModal({
               className={[
                 "h-10 px-5 rounded-full border font-extrabold text-[13px]",
                 "bg-white/70 border-zinc-200 text-zinc-900 hover:bg-white",
-                "dark:bg-white/[0.06] dark:border-white/10 dark:text-white dark:hover:bg-white/[0.10]",
+"dark:bg-white/[0.04] dark:border-white/10 dark:text-white/85 dark:hover:bg-white/[0.07]",
                 "transition-colors",
                 "cursor-pointer",
               ].join(" ")}
@@ -1349,9 +1349,10 @@ export default function CookieBanner({
             "rounded-2xl border",
             "px-2.5 py-2 sm:px-4 sm:py-2",
             "backdrop-blur-xl",
-            "shadow-[0_12px_38px_rgba(0,0,0,0.10)]",
-            "bg-white/70 border-white/70",
-            "dark:bg-zinc-950/50 dark:border-white/10",
+"bg-white/70 border-white/70",
+"dark:bg-zinc-950/70 dark:border-white/12",
+"shadow-[0_12px_38px_rgba(0,0,0,0.14)] dark:shadow-[0_16px_55px_rgba(0,0,0,0.45)]",
+
             "relative overflow-hidden",
           ].join(" ")}
         >
@@ -1376,7 +1377,7 @@ export default function CookieBanner({
     isRTL ? "flex-row-reverse" : "flex-row",
     "text-[12.5px] sm:text-[13px]",
     "leading-none",
-    "text-zinc-700 dark:text-white/70",
+    "text-zinc-700 dark:text-white/80",
     isRTL ? "text-center sm:text-right" : "text-center sm:text-left",
   ].join(" ")}
 >
@@ -1404,10 +1405,10 @@ export default function CookieBanner({
                   "h-9 px-3.5",
                   "rounded-full border font-extrabold",
                   "text-[12.5px]",
-                  "bg-white/65 border-zinc-200 text-zinc-900",
-                  "hover:bg-white",
-                  "dark:bg-white/[0.06] dark:border-white/10 dark:text-white",
-                  "dark:hover:bg-white/[0.10]",
+"bg-white/65 border-zinc-200 text-zinc-900",
+"hover:bg-white hover:border-zinc-300 hover:shadow-sm",
+"dark:bg-white/[0.04] dark:border-white/10 dark:text-white/85",
+"dark:hover:bg-white/[0.07]",
                    "cursor-pointer",
                   "transition-colors",
                 ].join(" ")}

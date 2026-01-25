@@ -14,7 +14,7 @@ export const I18N_MESSAGES = {
     TRIAL_STARTED: "Trial started. You can continue.",
 
     MAGIC_LINK_FAILED: "Could not send magic link. Please try again.",
-    MAGIC_LINK_TRIAL_SENT: "Magic link sent. Check your email to start your 3-day trial.",
+    MAGIC_LINK_TRIAL_SENT: "Magic link sent. Check your email to start your 7-day trial.",
     MAGIC_LINK_SUBSCRIBE_SENT: "Magic link sent. Check your email to continue to checkout.",
     MAGIC_LINK_UNEXPECTED: "Something went wrong. Please try again later.",
 
@@ -37,7 +37,7 @@ export const I18N_MESSAGES = {
     TRIAL_STARTED: "Prova avviata. Puoi continuare.",
 
     MAGIC_LINK_FAILED: "Impossibile inviare il link. Riprova.",
-    MAGIC_LINK_TRIAL_SENT: "Link inviato. Controlla l’email per iniziare la prova di 3 giorni.",
+    MAGIC_LINK_TRIAL_SENT: "Link inviato. Controlla l’email per iniziare la prova di 7 giorni.",
     MAGIC_LINK_SUBSCRIBE_SENT: "Link inviato. Controlla l’email per procedere al pagamento.",
     MAGIC_LINK_UNEXPECTED: "Qualcosa è andato storto. Riprova più tardi.",
 
