@@ -1795,7 +1795,7 @@ const PRICE_PER_MONTH = `${monthlyPrice}${P.perMonth}`;
   const openPrivacy = () => setPrivacyOpen(true);
   const closePrivacy = () => setPrivacyOpen(false);
 const demoCopy = useMemo(() => getDemoButtonCopy(uiLang), [uiLang]);
-
+const [showDemoTip, setShowDemoTip] = useState(false);
   // mount/unmount with exit duration
   useEffect(() => {
     const EXIT_MS = 260; // keep in sync with CSS duration below
@@ -2671,7 +2671,10 @@ const showDemoButton =
   <span className="relative group">
     <button
       type="button"
-      onClick={isDemo ? exitDemo : startOfflineDemo}
+      onClick={() => {
+        if (!isDemo) setShowDemoTip((v) => !v); // tap shows tooltip on mobile
+        (isDemo ? exitDemo : startOfflineDemo)();
+      }}
       className={cn(
         "relative z-[90] pointer-events-auto",
         "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full select-none",
@@ -2679,7 +2682,6 @@ const showDemoButton =
         "transition-all duration-300",
         "active:scale-[0.94]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-
         isDemo
           ? theme === "dark"
             ? "bg-amber-400/10 text-amber-200 border border-amber-400/25 hover:bg-amber-400/18"
@@ -2693,25 +2695,61 @@ const showDemoButton =
       <span>{isDemo ? demoCopy.exitDemo : demoCopy.tryDemo}</span>
     </button>
 
-    {/* ✨ Custom tooltip */}
+    {/* ✨ Tooltip: hover on desktop, tap-toggle on mobile */}
     {!isDemo && (
       <div
         className={cn(
-          "pointer-events-none absolute left-1/2 top-full mt-0.5 -translate-x-1/2",
-          "opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100",
-          "transition-all duration-200 ease-out",
-          "rounded-xl px-3 py-2 whitespace-nowrap",
-          "text-[11px] font-medium tracking-tight",
+          // ✅ Mobile: align to button's left edge
+          "absolute left-0 top-full mt-1 z-[95]",
+
+          // ✅ Desktop: center like a normal tooltip
+          "sm:left-1/2 sm:-translate-x-1/2",
+
+          // ✅ IMPORTANT: invisible tooltip must NOT capture hover
+          "pointer-events-none",
+
+          // show / hide
+          "opacity-0 scale-[0.98] sm:scale-95",
+          "group-hover:opacity-100 group-hover:scale-100",
+          "sm:group-hover:pointer-events-auto", // ✅ allow hover interaction when visible on desktop
+          showDemoTip ? "opacity-100 scale-100 pointer-events-auto" : "", // ✅ allow tap interaction when opened on mobile
+
+          // animation
+          "transition-[opacity,transform] duration-150 ease-out",
+
+          // ✅ sizing
+          "w-max max-w-[240px] sm:max-w-none",
+          "px-2 py-1 sm:px-3 sm:py-2",
+          "rounded-lg sm:rounded-xl",
+
+          // ✅ text
+          "text-[10px] sm:text-[11px] leading-snug tracking-tight",
+          "whitespace-normal sm:whitespace-nowrap",
+          "text-left",
+
           theme === "dark"
-            ? "bg-zinc-900/95 text-zinc-100 border border-white/10 shadow-[0_10px_40px_rgba(0,0,0,0.6)]"
-            : "bg-white text-zinc-900 border border-zinc-200 shadow-[0_10px_30px_rgba(0,0,0,0.15)]"
+            ? "bg-zinc-900/95 text-zinc-100 border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.55)]"
+            : "bg-white text-zinc-900 border border-zinc-200 shadow-[0_10px_24px_rgba(0,0,0,0.12)]"
         )}
+        role="tooltip"
+        aria-hidden={!showDemoTip}
       >
-        {demoCopy.tooltip}
+        <span>
+          <span className="inline">
+            {demoCopy.tooltip.replace(" · Then click Explain", "")}
+          </span>
+
+          <span className="block sm:inline">
+            <span className="hidden sm:inline"> · </span>
+            Then click Explain
+          </span>
+        </span>
       </div>
     )}
   </span>
 )}
+
+
 
 
 
@@ -2859,7 +2897,7 @@ const showDemoButton =
         <header className="mb-4 md:mb-6 space-y-2 md:space-y-4 print:hidden">
           <div className="space-y-3">
             <h1 className="text-4xl md:text-[5rem] font-[950] tracking-[-0.065em] leading-[0.86] md:leading-[0.80]">
-              <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Ephemiral Data. </span>{" "}
+              <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Data. </span>{" "}
               <span className="inline pb-[0.1em] md:pb-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-400 bg-[length:200%_auto] animate-shimmer-text">
                 Explained.
               </span>
