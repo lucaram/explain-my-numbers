@@ -2728,8 +2728,8 @@ const showDemoButton =
       "transition-[opacity,transform] duration-150 ease-out",
 
       // sizing
-      "w-[min(220px,calc(100vw-56px))] sm:w-max",
-      "max-w-[min(220px,calc(100vw-56px))] sm:max-w-none",
+      "w-[min(200px,calc(100vw-56px))] sm:w-max",
+"max-w-[min(200px,calc(100vw-56px))] sm:max-w-none",
       "px-2 py-1 sm:px-3 sm:py-2",
       "rounded-lg sm:rounded-xl",
 
