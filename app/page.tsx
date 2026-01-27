@@ -2711,21 +2711,15 @@ const showDemoButton =
 </button>
 
 
-      {/* ✨ Tooltip: hover on desktop, tap-toggle on mobile */}
 {/* ✨ Tooltip: hover on desktop, tap-toggle on mobile */}
 {!isDemo && (
   <div
     className={cn(
-      // ✅ Mobile: center under button + clamp width so it never overflows
+      // positioning
       "absolute left-1/2 top-full mt-1 -translate-x-1/2 z-[95]",
 
-      // ✅ Desktop: center like a normal tooltip
-      "sm:left-1/2 sm:-translate-x-1/2",
-
-      // ✅ IMPORTANT: invisible tooltip must NOT capture hover
+      // interaction
       "pointer-events-none",
-
-      // show / hide
       "opacity-0 scale-[0.98] sm:scale-95",
       "group-hover:opacity-100 group-hover:scale-100",
       "sm:group-hover:pointer-events-auto",
@@ -2736,7 +2730,7 @@ const showDemoButton =
 
       // sizing
       "w-[min(200px,calc(100vw-56px))] sm:w-max",
-"max-w-[min(200px,calc(100vw-56px))] sm:max-w-none",
+      "max-w-[min(200px,calc(100vw-56px))] sm:max-w-none",
       "px-2 py-1 sm:px-3 sm:py-2",
       "rounded-lg sm:rounded-xl",
 
@@ -2753,32 +2747,10 @@ const showDemoButton =
     role="tooltip"
     aria-hidden={!showDemoTip}
   >
-    {(() => {
-      const parts = demoCopy.tooltip.split("·");
-
-      return (
-        <>
-          {/* ✅ Mobile: split into two lines */}
-          <span className="block sm:hidden">
-            <span className="block">
-              {parts[0]?.trim()} ·
-            </span>
-            {parts[1] && (
-              <span className="block mt-0.5">
-                {parts[1].trim()}
-              </span>
-            )}
-          </span>
-
-          {/* ✅ Desktop: single-line tooltip */}
-          <span className="hidden sm:inline">
-            {demoCopy.tooltip}
-          </span>
-        </>
-      );
-    })()}
+    <span className="inline">{demoCopy.tooltip}</span>
   </div>
 )}
+
 
     </span>
   )}
