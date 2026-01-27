@@ -123,7 +123,7 @@ const I18N: Record<
   }
 > = {
   en: {
-    bannerLine: "We use cookies to improve your experience & understand app usage.",
+    bannerLine: "We use cookies to improve your experience and understand app usage.",
     learnMore: "Learn more",
     accept: "Accept",
     title: "Cookies",

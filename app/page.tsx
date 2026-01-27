@@ -2698,51 +2698,51 @@ const showDemoButton =
     {/* ✨ Tooltip: hover on desktop, tap-toggle on mobile */}
     {!isDemo && (
       <div
-        className={cn(
-          // ✅ Mobile: align to button's left edge
-          "absolute left-0 top-full mt-1 z-[95]",
+  className={cn(
+    // ✅ Mobile: center under the button + clamp to viewport
+    "absolute left-1/2 top-full mt-1 -translate-x-1/2 z-[95]",
 
-          // ✅ Desktop: center like a normal tooltip
-          "sm:left-1/2 sm:-translate-x-1/2",
+    // ✅ Desktop: same centering (kept explicit)
+    "sm:left-1/2 sm:-translate-x-1/2",
 
-          // ✅ IMPORTANT: invisible tooltip must NOT capture hover
-          "pointer-events-none",
+    // ✅ IMPORTANT: invisible tooltip must NOT capture hover
+    "pointer-events-none",
 
-          // show / hide
-          "opacity-0 scale-[0.98] sm:scale-95",
-          "group-hover:opacity-100 group-hover:scale-100",
-          "sm:group-hover:pointer-events-auto", // ✅ allow hover interaction when visible on desktop
-          showDemoTip ? "opacity-100 scale-100 pointer-events-auto" : "", // ✅ allow tap interaction when opened on mobile
+    // show / hide
+    "opacity-0 scale-[0.98] sm:scale-95",
+    "group-hover:opacity-100 group-hover:scale-100",
+    "sm:group-hover:pointer-events-auto",
+    showDemoTip ? "opacity-100 scale-100 pointer-events-auto" : "",
 
-          // animation
-          "transition-[opacity,transform] duration-150 ease-out",
+    // animation
+    "transition-[opacity,transform] duration-150 ease-out",
 
-          // ✅ sizing
-          "w-max max-w-[240px] sm:max-w-none",
-          "px-2 py-1 sm:px-3 sm:py-2",
-          "rounded-lg sm:rounded-xl",
+    // ✅ sizing (mobile stays inside screen)
+    "w-[min(240px,calc(100vw-24px))] sm:w-max",
+    "max-w-[calc(100vw-24px)] sm:max-w-none",
+    "px-2 py-1 sm:px-3 sm:py-2",
+    "rounded-lg sm:rounded-xl",
 
-          // ✅ text
-          "text-[10px] sm:text-[11px] leading-snug tracking-tight",
-          "whitespace-normal sm:whitespace-nowrap",
-          "text-left",
+    // ✅ text
+    "text-[10px] sm:text-[11px] leading-snug tracking-tight",
+    "whitespace-normal sm:whitespace-nowrap",
+    "break-words",
+    "text-left",
 
-          theme === "dark"
-            ? "bg-zinc-900/95 text-zinc-100 border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.55)]"
-            : "bg-white text-zinc-900 border border-zinc-200 shadow-[0_10px_24px_rgba(0,0,0,0.12)]"
-        )}
-        role="tooltip"
-        aria-hidden={!showDemoTip}
-      >
+    theme === "dark"
+      ? "bg-zinc-900/95 text-zinc-100 border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.55)]"
+      : "bg-white text-zinc-900 border border-zinc-200 shadow-[0_10px_24px_rgba(0,0,0,0.12)]"
+  )}
+  role="tooltip"
+  aria-hidden={!showDemoTip}
+>
+
         <span>
           <span className="inline">
             {demoCopy.tooltip.replace(" · Then click Explain", "")}
           </span>
 
-          <span className="block sm:inline">
-            <span className="hidden sm:inline"> · </span>
-            Then click Explain
-          </span>
+
         </span>
       </div>
     )}
