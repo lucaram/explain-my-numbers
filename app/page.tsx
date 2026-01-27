@@ -2634,25 +2634,26 @@ const showDemoButton =
       </div>
 
       <nav className="sticky top-0 z-[60] backdrop-blur-2xl">
-        <div className="max-w-7xl mx-auto px-4 md:px-8 h-12 md:h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2.5 select-none">
-            <div
-              className={cn(
-                "h-8 w-8 rounded-2xl grid place-items-center",
-                theme === "dark"
-                  ? "bg-white/[0.05] border border-white/10"
-                  : "bg-white/80 border border-zinc-200 shadow-[0_10px_30px_rgba(0,0,0,0.06)]"
-              )}
-              aria-hidden="true"
-            >
-<BarChart3
-  size={16}
-  className={cn(
-    "hidden sm:inline", // 👈 desktop only
-    theme === "dark" ? "text-white/85" : "text-zinc-900"
-  )}
-/>
-            </div>
+  <div className="max-w-7xl mx-auto px-4 md:px-8 h-12 md:h-14 flex items-center justify-between">
+    <div className="flex items-center gap-2.5 select-none">
+      {/* Desktop-only icon container */}
+      <div
+        className={cn(
+          "hidden sm:grid h-8 w-8 rounded-2xl place-items-center",
+          theme === "dark"
+            ? "bg-white/[0.05] border border-white/10"
+            : "bg-white/80 border border-zinc-200 shadow-[0_10px_30px_rgba(0,0,0,0.06)]"
+        )}
+        aria-hidden="true"
+      >
+        <BarChart3
+          size={16}
+          className={cn(
+            theme === "dark" ? "text-white/85" : "text-zinc-900"
+          )}
+        />
+      </div>
+
 
             <span className="font-black tracking-[-0.03em] text-[14px] md:text-[15px]">
               Explain My Numbers{" "}
