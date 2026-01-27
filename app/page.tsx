@@ -2662,98 +2662,86 @@ const showDemoButton =
   </span>
 
   {/* Title + Demo button */}
- <span className="inline-flex items-center gap-1.5">
+{/* Title + Demo button */}
+<span className="inline-flex items-center gap-1.5">
+  {/* ✅ DEMO BUTTON */}
+  {showDemoButton && (
+    <span className="relative group">
+      <button
+        type="button"
+        onClick={() => {
+          if (!isDemo) setShowDemoTip((v) => !v); // tap shows tooltip on mobile
+          (isDemo ? exitDemo : startOfflineDemo)();
+        }}
+        className={cn(
+          "relative z-[90] pointer-events-auto",
+          "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full select-none",
+          "text-[11px] font-black uppercase tracking-[0.24em]",
+          "transition-all duration-300",
+          "active:scale-[0.94]",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+          isDemo
+            ? theme === "dark"
+              ? "bg-amber-400/10 text-amber-200 border border-amber-400/25 hover:bg-amber-400/18"
+              : "bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100"
+            : theme === "dark"
+              ? "bg-indigo-400/10 text-indigo-200 border border-indigo-400/25 hover:bg-indigo-400/18"
+              : "bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+        )}
+      >
+        <FileText size={12} className="opacity-80" />
+        <span>{isDemo ? demoCopy.exitDemo : demoCopy.tryDemo}</span>
+      </button>
 
-    
+      {/* ✨ Tooltip: hover on desktop, tap-toggle on mobile */}
+      {!isDemo && (
+        <div
+          className={cn(
+            // ✅ Mobile: center under button + clamp width so it never overflows
+            "absolute left-1/2 top-full mt-1 -translate-x-1/2 z-[95]",
 
-    {/* ✅ DEMO BUTTON */}
-{showDemoButton && (
-  <span className="relative group">
-    <button
-      type="button"
-      onClick={() => {
-        if (!isDemo) setShowDemoTip((v) => !v); // tap shows tooltip on mobile
-        (isDemo ? exitDemo : startOfflineDemo)();
-      }}
-      className={cn(
-        "relative z-[90] pointer-events-auto",
-        "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full select-none",
-        "text-[11px] font-black uppercase tracking-[0.24em]",
-        "transition-all duration-300",
-        "active:scale-[0.94]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-        isDemo
-          ? theme === "dark"
-            ? "bg-amber-400/10 text-amber-200 border border-amber-400/25 hover:bg-amber-400/18"
-            : "bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100"
-          : theme === "dark"
-            ? "bg-indigo-400/10 text-indigo-200 border border-indigo-400/25 hover:bg-indigo-400/18"
-            : "bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+            // ✅ Desktop: center like a normal tooltip
+            "sm:left-1/2 sm:-translate-x-1/2",
+
+            // ✅ IMPORTANT: invisible tooltip must NOT capture hover
+            "pointer-events-none",
+
+            // show / hide
+            "opacity-0 scale-[0.98] sm:scale-95",
+            "group-hover:opacity-100 group-hover:scale-100",
+            "sm:group-hover:pointer-events-auto", // ✅ allow hover interaction when visible on desktop
+            showDemoTip ? "opacity-100 scale-100 pointer-events-auto" : "", // ✅ allow tap interaction when opened on mobile
+
+            // animation
+            "transition-[opacity,transform] duration-150 ease-out",
+
+            // ✅ sizing: tighter on mobile + visible margins
+            "w-[min(220px,calc(100vw-56px))] sm:w-max",
+            "max-w-[min(220px,calc(100vw-56px))] sm:max-w-none",
+            "px-2 py-1 sm:px-3 sm:py-2",
+            "rounded-lg sm:rounded-xl",
+
+            // ✅ text
+            "text-[10px] sm:text-[11px] leading-snug tracking-tight",
+            "whitespace-normal sm:whitespace-nowrap",
+            "break-words",
+            "text-left",
+
+            theme === "dark"
+              ? "bg-zinc-900/95 text-zinc-100 border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.55)]"
+              : "bg-white text-zinc-900 border border-zinc-200 shadow-[0_10px_24px_rgba(0,0,0,0.12)]"
+          )}
+          role="tooltip"
+          aria-hidden={!showDemoTip}
+        >
+          {/* ✅ Keep full translated tooltip (includes “Then click Explain.”) */}
+          <span className="inline">{demoCopy.tooltip}</span>
+        </div>
       )}
-    >
-      <FileText size={12} className="opacity-80" />
-      <span>{isDemo ? demoCopy.exitDemo : demoCopy.tryDemo}</span>
-    </button>
-
-    {/* ✨ Tooltip: hover on desktop, tap-toggle on mobile */}
-    {!isDemo && (
-      <div
-  className={cn(
-    // ✅ Mobile: center under the button + clamp to viewport
-    "absolute left-1/2 top-full mt-1 -translate-x-1/2 z-[95]",
-
-    // ✅ Desktop: same centering (kept explicit)
-    "sm:left-1/2 sm:-translate-x-1/2",
-
-    // ✅ IMPORTANT: invisible tooltip must NOT capture hover
-    "pointer-events-none",
-
-    // show / hide
-    "opacity-0 scale-[0.98] sm:scale-95",
-    "group-hover:opacity-100 group-hover:scale-100",
-    "sm:group-hover:pointer-events-auto",
-    showDemoTip ? "opacity-100 scale-100 pointer-events-auto" : "",
-
-    // animation
-    "transition-[opacity,transform] duration-150 ease-out",
-
-    // ✅ sizing (mobile stays inside screen)
-    "w-[min(240px,calc(100vw-24px))] sm:w-max",
-    "max-w-[calc(100vw-24px)] sm:max-w-none",
-    "px-2 py-1 sm:px-3 sm:py-2",
-    "rounded-lg sm:rounded-xl",
-
-    // ✅ text
-    "text-[10px] sm:text-[11px] leading-snug tracking-tight",
-    "whitespace-normal sm:whitespace-nowrap",
-    "break-words",
-    "text-left",
-
-    theme === "dark"
-      ? "bg-zinc-900/95 text-zinc-100 border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.55)]"
-      : "bg-white text-zinc-900 border border-zinc-200 shadow-[0_10px_24px_rgba(0,0,0,0.12)]"
+    </span>
   )}
-  role="tooltip"
-  aria-hidden={!showDemoTip}
->
+</span>
 
-        <span>
-          <span className="inline">
-            {demoCopy.tooltip.replace(" · Then click Explain", "")}
-          </span>
-
-
-        </span>
-      </div>
-    )}
-  </span>
-)}
-
-
-
-
-
-  </span>
 </span>
 
 
