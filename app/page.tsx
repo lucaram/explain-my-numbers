@@ -2645,7 +2645,13 @@ const showDemoButton =
               )}
               aria-hidden="true"
             >
-              <BarChart3 size={16} className={cn(theme === "dark" ? "text-white/85" : "text-zinc-900")} />
+<BarChart3
+  size={16}
+  className={cn(
+    "hidden sm:inline", // 👈 desktop only
+    theme === "dark" ? "text-white/85" : "text-zinc-900"
+  )}
+/>
             </div>
 
             <span className="font-black tracking-[-0.03em] text-[14px] md:text-[15px]">
@@ -2661,7 +2667,7 @@ const showDemoButton =
     <ArrowRight className="w-[0.9em] h-[0.9em]" strokeWidth={2.25} />
   </span>
 
-  {/* Title + Demo button */}
+
 {/* Title + Demo button */}
 <span className="inline-flex items-center gap-1.5">
   {/* ✅ DEMO BUTTON */}
@@ -2920,7 +2926,9 @@ const showDemoButton =
         <header className="mb-4 md:mb-6 space-y-2 md:space-y-4 print:hidden">
           <div className="space-y-3">
             <h1 className="text-4xl md:text-[5rem] font-[950] tracking-[-0.065em] leading-[0.86] md:leading-[0.80]">
-              <span className="inline text-zinc-300 dark:text-zinc-800 transition-colors duration-700">Data. </span>{" "}
+<span className="inline text-zinc-300 dark:text-white-90 transition-colors duration-700">
+  Data.{" "}
+</span>
               <span className="inline pb-[0.1em] md:pb-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-400 bg-[length:200%_auto] animate-shimmer-text">
                 Explained.
               </span>
