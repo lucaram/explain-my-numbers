@@ -2694,50 +2694,74 @@ const showDemoButton =
       </button>
 
       {/* ✨ Tooltip: hover on desktop, tap-toggle on mobile */}
-      {!isDemo && (
-        <div
-          className={cn(
-            // ✅ Mobile: center under button + clamp width so it never overflows
-            "absolute left-1/2 top-full mt-1 -translate-x-1/2 z-[95]",
+{/* ✨ Tooltip: hover on desktop, tap-toggle on mobile */}
+{!isDemo && (
+  <div
+    className={cn(
+      // ✅ Mobile: center under button + clamp width so it never overflows
+      "absolute left-1/2 top-full mt-1 -translate-x-1/2 z-[95]",
 
-            // ✅ Desktop: center like a normal tooltip
-            "sm:left-1/2 sm:-translate-x-1/2",
+      // ✅ Desktop: center like a normal tooltip
+      "sm:left-1/2 sm:-translate-x-1/2",
 
-            // ✅ IMPORTANT: invisible tooltip must NOT capture hover
-            "pointer-events-none",
+      // ✅ IMPORTANT: invisible tooltip must NOT capture hover
+      "pointer-events-none",
 
-            // show / hide
-            "opacity-0 scale-[0.98] sm:scale-95",
-            "group-hover:opacity-100 group-hover:scale-100",
-            "sm:group-hover:pointer-events-auto", // ✅ allow hover interaction when visible on desktop
-            showDemoTip ? "opacity-100 scale-100 pointer-events-auto" : "", // ✅ allow tap interaction when opened on mobile
+      // show / hide
+      "opacity-0 scale-[0.98] sm:scale-95",
+      "group-hover:opacity-100 group-hover:scale-100",
+      "sm:group-hover:pointer-events-auto",
+      showDemoTip ? "opacity-100 scale-100 pointer-events-auto" : "",
 
-            // animation
-            "transition-[opacity,transform] duration-150 ease-out",
+      // animation
+      "transition-[opacity,transform] duration-150 ease-out",
 
-            // ✅ sizing: tighter on mobile + visible margins
-            "w-[min(220px,calc(100vw-56px))] sm:w-max",
-            "max-w-[min(220px,calc(100vw-56px))] sm:max-w-none",
-            "px-2 py-1 sm:px-3 sm:py-2",
-            "rounded-lg sm:rounded-xl",
+      // sizing
+      "w-[min(220px,calc(100vw-56px))] sm:w-max",
+      "max-w-[min(220px,calc(100vw-56px))] sm:max-w-none",
+      "px-2 py-1 sm:px-3 sm:py-2",
+      "rounded-lg sm:rounded-xl",
 
-            // ✅ text
-            "text-[10px] sm:text-[11px] leading-snug tracking-tight",
-            "whitespace-normal sm:whitespace-nowrap",
-            "break-words",
-            "text-left",
+      // text
+      "text-[10px] sm:text-[11px] leading-snug tracking-tight",
+      "whitespace-normal sm:whitespace-nowrap",
+      "break-words",
+      "text-left",
 
-            theme === "dark"
-              ? "bg-zinc-900/95 text-zinc-100 border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.55)]"
-              : "bg-white text-zinc-900 border border-zinc-200 shadow-[0_10px_24px_rgba(0,0,0,0.12)]"
-          )}
-          role="tooltip"
-          aria-hidden={!showDemoTip}
-        >
-          {/* ✅ Keep full translated tooltip (includes “Then click Explain.”) */}
-          <span className="inline">{demoCopy.tooltip}</span>
-        </div>
-      )}
+      theme === "dark"
+        ? "bg-zinc-900/95 text-zinc-100 border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.55)]"
+        : "bg-white text-zinc-900 border border-zinc-200 shadow-[0_10px_24px_rgba(0,0,0,0.12)]"
+    )}
+    role="tooltip"
+    aria-hidden={!showDemoTip}
+  >
+    {(() => {
+      const parts = demoCopy.tooltip.split("·");
+
+      return (
+        <>
+          {/* ✅ Mobile: split into two lines */}
+          <span className="block sm:hidden">
+            <span className="block">
+              {parts[0]?.trim()} ·
+            </span>
+            {parts[1] && (
+              <span className="block mt-0.5">
+                {parts[1].trim()}
+              </span>
+            )}
+          </span>
+
+          {/* ✅ Desktop: single-line tooltip */}
+          <span className="hidden sm:inline">
+            {demoCopy.tooltip}
+          </span>
+        </>
+      );
+    })()}
+  </div>
+)}
+
     </span>
   )}
 </span>
