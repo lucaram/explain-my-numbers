@@ -2668,30 +2668,41 @@ const showDemoButton =
   {showDemoButton && (
     <span className="relative group">
       <button
-        type="button"
-        onClick={() => {
-          if (!isDemo) setShowDemoTip((v) => !v); // tap shows tooltip on mobile
-          (isDemo ? exitDemo : startOfflineDemo)();
-        }}
-        className={cn(
-          "relative z-[90] pointer-events-auto",
-          "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full select-none",
-          "text-[11px] font-black uppercase tracking-[0.24em]",
-          "transition-all duration-300",
-          "active:scale-[0.94]",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-          isDemo
-            ? theme === "dark"
-              ? "bg-amber-400/10 text-amber-200 border border-amber-400/25 hover:bg-amber-400/18"
-              : "bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100"
-            : theme === "dark"
-              ? "bg-indigo-400/10 text-indigo-200 border border-indigo-400/25 hover:bg-indigo-400/18"
-              : "bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
-        )}
-      >
-        <FileText size={12} className="opacity-80" />
-        <span>{isDemo ? demoCopy.exitDemo : demoCopy.tryDemo}</span>
-      </button>
+  type="button"
+  onClick={() => {
+    if (!isDemo) setShowDemoTip((v) => !v); // tap shows tooltip on mobile
+    (isDemo ? exitDemo : startOfflineDemo)();
+  }}
+  className={cn(
+    "relative z-[90] pointer-events-auto",
+    "inline-flex items-center gap-1.5 sm:gap-2",
+    "px-2.5 py-1 sm:px-3.5 sm:py-1.5", // ✅ tighter on mobile
+    "rounded-full select-none",
+
+    // ✅ text sizing + tracking
+    "text-[10px] sm:text-[11px]",
+    "font-black uppercase",
+    "tracking-[0.18em] sm:tracking-[0.24em]",
+
+    "transition-all duration-300",
+    "active:scale-[0.94]",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+
+    isDemo
+      ? theme === "dark"
+        ? "bg-amber-400/10 text-amber-200 border border-amber-400/25 hover:bg-amber-400/18"
+        : "bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100"
+      : theme === "dark"
+        ? "bg-indigo-400/10 text-indigo-200 border border-indigo-400/25 hover:bg-indigo-400/18"
+        : "bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+  )}
+>
+  {/* Desktop only icon */}
+  <FileText size={12} className="hidden sm:inline opacity-80" />
+
+  <span>{isDemo ? demoCopy.exitDemo : demoCopy.tryDemo}</span>
+</button>
+
 
       {/* ✨ Tooltip: hover on desktop, tap-toggle on mobile */}
 {/* ✨ Tooltip: hover on desktop, tap-toggle on mobile */}
