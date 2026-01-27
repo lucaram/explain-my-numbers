@@ -10,7 +10,7 @@ export const I18N_DEMO_BUTTON: Record<string, DemoButtonCopy> = {
   en: {
     tryDemo: "Try demo",
     exitDemo: "Exit demo",
-    tooltip: "Data from an Excel sheet will be copied · Then click Explain.",
+    tooltip: "Data from an Excel sheet will be pasted · Then click Explain.",
   },
   it: {
     tryDemo: "Prova la demo",
