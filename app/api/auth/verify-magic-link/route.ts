@@ -3,14 +3,22 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
-import { createHmac, timingSafeEqual, createHash } from "crypto";
+import { createHmac, timingSafeEqual, createHash, randomBytes } from "crypto";
 
 export const runtime = "nodejs";
 
+// ✅ NEW: session cookie now stores only a session id (sid)
+const SESSION_ID_COOKIE_NAME = process.env.SESSION_ID_COOKIE_NAME || "emn_sid";
+
+// (kept: your old name env may still exist elsewhere; leave it for now)
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "emn_session";
+
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const TRIAL_DAYS = 7;
 const MAGIC_NONCE_TTL_SECONDS = 15 * 60;
+
+// ✅ Redis session key prefix
+const SESSION_KEY_PREFIX = "emn:sess:";
 
 /** --------------------------
  * Helpers
@@ -25,8 +33,15 @@ function verifySignedToken(token: string, magicSecret: string) {
   try {
     const [body, sig] = token.split(".");
     if (!body || !sig) return null;
+
     const expectedSig = base64url(createHmac("sha256", magicSecret).update(body).digest());
-    if (!timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) return null;
+
+    // Important: timingSafeEqual requires equal length buffers
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expectedSig);
+    if (a.length !== b.length) return null;
+    if (!timingSafeEqual(a, b)) return null;
+
     const pad = "=".repeat((4 - (body.length % 4 || 4)) % 4);
     const b64 = (body + pad).replace(/-/g, "+").replace(/_/g, "/");
     return JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
@@ -38,6 +53,16 @@ function verifySignedToken(token: string, magicSecret: string) {
 function getCanonicalOrigin(req: Request, fallbackOrigins: string) {
   const isDev = process.env.NODE_ENV === "development";
   if (isDev) return "http://localhost:3000";
+
+  // ✅ Prefer configured origin (canonical)
+  const first = (fallbackOrigins || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)[0];
+
+  if (first) return first.replace(/\/$/, "");
+
+  // Fallback to request host
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
   const proto = req.headers.get("x-forwarded-proto") || "https";
   if (host.includes("localhost")) return "http://localhost:3000";
@@ -122,10 +147,18 @@ type SessionPayload = {
   trialSubscriptionId?: string | null;
 };
 
-function signSessionCookie(session: SessionPayload, secret: string) {
-  const body = base64url(JSON.stringify(session));
-  const sig = base64url(createHmac("sha256", secret).update(body).digest());
-  return `${body}.${sig}`;
+// ✅ NEW: create a real random session id (don’t derive from nonce)
+function createSessionId() {
+  return base64url(randomBytes(24)); // ~32 chars url-safe
+}
+
+function sessionKey(sid: string) {
+  return `${SESSION_KEY_PREFIX}${sid}`;
+}
+
+// ✅ NEW: store session payload in Redis (server-side)
+async function writeSession(redis: Redis, session: SessionPayload) {
+  await redis.set(sessionKey(session.sid), session, { ex: SESSION_TTL_SECONDS });
 }
 
 /** --------------------------
@@ -133,12 +166,7 @@ function signSessionCookie(session: SessionPayload, secret: string) {
  * -------------------------- */
 
 export async function GET(req: Request) {
-  const {
-    MAGIC_LINK_SECRET,
-    STRIPE_SECRET_KEY,
-    APP_ORIGINS,
-    NODE_ENV,
-  } = process.env;
+  const { MAGIC_LINK_SECRET, STRIPE_SECRET_KEY, APP_ORIGINS, NODE_ENV } = process.env;
 
   const origin = getCanonicalOrigin(req, APP_ORIGINS || "");
   const isDev = NODE_ENV === "development";
@@ -177,12 +205,15 @@ export async function GET(req: Request) {
     if (used) return NextResponse.redirect(`${origin}/?magic=error&reason=link_used`);
     await redis.set(nonceKey, "1", { ex: MAGIC_NONCE_TTL_SECONDS });
 
+    // ✅ NEW: each device gets its own independent session id
+    const sid = createSessionId();
+
     const baseSession: SessionPayload = {
       v: 1,
       email: payload.email,
       stripeCustomerId: payload.stripeCustomerId,
       iat: nowSec,
-      sid: createHash("sha256").update(payload.nonce).digest("hex").slice(0, 12),
+      sid,
     };
 
     // ✅ Determine pricing by country (GB=>GBP, EU=>EUR, else=>USD)
@@ -197,7 +228,11 @@ export async function GET(req: Request) {
 
       if (subs.data.length > 0 || md.emn_trial_used === "1") {
         const res = NextResponse.redirect(`${origin}/?magic=ok&intent=subscribe_required`);
-        setAuthCookie(res, baseSession, MAGIC_LINK_SECRET!, isDev);
+
+        // ✅ write session to Redis + set sid cookie
+        await writeSession(redis, baseSession);
+        setSessionIdCookie(res, baseSession.sid, isDev);
+
         return res;
       }
 
@@ -228,13 +263,17 @@ export async function GET(req: Request) {
         { idempotencyKey: `cust_${payload.nonce}` }
       );
 
+      const sessionWithTrial: SessionPayload = {
+        ...baseSession,
+        trialEndsAt: sub.trial_end,
+        trialSubscriptionId: sub.id,
+      };
+
       const res = NextResponse.redirect(`${origin}/?magic=success&intent=trial`);
-      setAuthCookie(
-        res,
-        { ...baseSession, trialEndsAt: sub.trial_end, trialSubscriptionId: sub.id },
-        MAGIC_LINK_SECRET!,
-        isDev
-      );
+
+      // ✅ write session to Redis + set sid cookie
+      await writeSession(redis, sessionWithTrial);
+      setSessionIdCookie(res, sessionWithTrial.sid, isDev);
 
       // Secondary cookie for frontend countdowns
       res.cookies.set({
@@ -269,7 +308,11 @@ export async function GET(req: Request) {
     });
 
     const res = NextResponse.redirect(checkout.url!, { status: 303 });
-    setAuthCookie(res, baseSession, MAGIC_LINK_SECRET!, isDev);
+
+    // ✅ write session to Redis + set sid cookie
+    await writeSession(redis, baseSession);
+    setSessionIdCookie(res, baseSession.sid, isDev);
+
     return res;
   } catch (e) {
     console.error("VERIFY_ERROR:", e);
@@ -277,14 +320,27 @@ export async function GET(req: Request) {
   }
 }
 
-function setAuthCookie(res: NextResponse, session: SessionPayload, secret: string, devMode: boolean) {
+// ✅ NEW: only set emn_sid cookie now
+function setSessionIdCookie(res: NextResponse, sid: string, devMode: boolean) {
   res.cookies.set({
-    name: SESSION_COOKIE_NAME,
-    value: signSessionCookie(session, secret),
+    name: SESSION_ID_COOKIE_NAME,
+    value: sid,
     httpOnly: true,
     secure: !devMode,
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL_SECONDS,
+  });
+
+  // ✅ Optional safety: clear the old cookie if it exists
+  // (prevents confusion if some routes still look for emn_session temporarily)
+  res.cookies.set({
+    name: SESSION_COOKIE_NAME,
+    value: "",
+    httpOnly: true,
+    secure: !devMode,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
   });
 }

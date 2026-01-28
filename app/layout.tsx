@@ -15,8 +15,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Explain My Numbers — Turn data into clear explanations",
-  description: "Paste data or Upload spreadsheets and get clear, human explanations. Explain My Numbers helps you understand what your data really means.",
+  metadataBase: new URL("https://explainmynumbers.app"),
+  title: {
+    default: "Explain My Numbers",
+    template: "%s — Explain My Numbers",
+  },
+  description:
+    "Paste data or upload spreadsheets and get clear, human explanations. Explain My Numbers helps you understand what your data really means.",
 };
 
 export default function RootLayout({
@@ -26,9 +31,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         {children}
         <CookieBanner />
         <Analytics />

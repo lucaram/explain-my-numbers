@@ -8,6 +8,12 @@ import { Ratelimit } from "@upstash/ratelimit";
 
 export const runtime = "nodejs";
 
+const SESSION_ID_COOKIE_NAME = process.env.SESSION_ID_COOKIE_NAME || "emn_sid";
+const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "emn_session"; // legacy fallback
+const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+const SESSION_KEY_PREFIX = "emn:sess:";
+
 function json(data: any, status = 200, headers?: Record<string, string>) {
   return NextResponse.json(data, { status, headers });
 }
@@ -18,19 +24,19 @@ function getStripe() {
   return new Stripe(key);
 }
 
+/** --------------------------
+ * Legacy signed-cookie helpers (fallback only)
+ * -------------------------- */
+
 function base64urlToBuffer(s: string) {
-  const pad = 4 - (s.length % 4 || 4);
+  const pad = (4 - (s.length % 4 || 4)) % 4;
   const b64 = (s + "=".repeat(pad)).replace(/-/g, "+").replace(/_/g, "/");
   return Buffer.from(b64, "base64");
 }
 
 function base64url(input: Buffer | string) {
   const b = Buffer.isBuffer(input) ? input : Buffer.from(input);
-  return b
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
+  return b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function verifySignedSessionCookie(cookieValue: string, secret: string) {
@@ -64,16 +70,55 @@ function verifySignedSessionCookie(cookieValue: string, secret: string) {
   }
 }
 
+/** --------------------------
+ * Redis session helpers (new)
+ * -------------------------- */
+
+type RedisSession = {
+  v: 1;
+  email: string;
+  stripeCustomerId: string;
+  iat: number;
+  sid: string;
+  trialEndsAt?: number | null;
+  trialSubscriptionId?: string | null;
+};
+
+function sessionKey(sid: string) {
+  return `${SESSION_KEY_PREFIX}${sid}`;
+}
+
+function isValidRedisSession(x: any): x is RedisSession {
+  if (!x || typeof x !== "object") return false;
+  if (x.v !== 1) return false;
+  if (typeof x.email !== "string" || !x.email.includes("@")) return false;
+  if (typeof x.stripeCustomerId !== "string" || !x.stripeCustomerId.startsWith("cus_")) return false;
+  if (typeof x.sid !== "string" || x.sid.length < 10) return false;
+  return true;
+}
+
 async function readSession(): Promise<{ email: string; stripeCustomerId: string; sid: string } | null> {
-  const name = process.env.SESSION_COOKIE_NAME || "emn_session";
   const jar = await cookies();
-  const c = jar.get(name)?.value;
-  if (!c) return null;
 
-  const secret = String(process.env.MAGIC_LINK_SECRET ?? "").trim();
-  if (!secret) return null;
+  // ✅ NEW: emn_sid -> Redis session
+  const sid = jar.get(SESSION_ID_COOKIE_NAME)?.value?.trim();
+  if (sid) {
+    const redis = Redis.fromEnv();
+    const got = await redis.get(sessionKey(sid));
+    if (isValidRedisSession(got)) {
+      return { email: got.email, stripeCustomerId: got.stripeCustomerId, sid: got.sid };
+    }
+  }
 
-  return verifySignedSessionCookie(c, secret);
+  // ✅ FALLBACK: old signed cookie (temporary migration support)
+  const legacy = jar.get(SESSION_COOKIE_NAME)?.value;
+  if (legacy) {
+    const secret = String(process.env.MAGIC_LINK_SECRET ?? "").trim();
+    if (!secret) return null;
+    return verifySignedSessionCookie(legacy, secret);
+  }
+
+  return null;
 }
 
 async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
@@ -88,16 +133,13 @@ export async function POST(req: Request) {
   try {
     const stripe = getStripe();
 
-    // ✅ Read & verify signed session cookie
+    // ✅ Read session (Redis-first)
     const sess = await readSession();
     if (!sess) {
-      return json(
-        { ok: false, error: "You must verify your magic link first.", error_code: "NO_SESSION" },
-        401
-      );
+      return json({ ok: false, error: "You must verify your magic link first.", error_code: "NO_SESSION" }, 401);
     }
 
-    // ✅ Rate limit (session-based)
+    // ✅ Rate limit (sid-based)
     const redis = Redis.fromEnv();
     const rl = new Ratelimit({
       redis,

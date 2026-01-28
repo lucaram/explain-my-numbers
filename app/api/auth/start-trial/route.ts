@@ -107,33 +107,31 @@ function hasUsedTrial(customer: Stripe.Customer) {
  * so cookies get set on localhost (not 127.0.0.1).
  */
 function getCanonicalOriginForEmail(req: Request, appOrigins: string) {
-  // ✅ If APP_ORIGINS contains localhost, we are explicitly in local dev.
+  // Take the first configured origin (canonical)
   const firstOrigin =
     (appOrigins || "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)[0] || "";
 
-  const isLocalDev = firstOrigin.includes("localhost:3000");
-
-  if (isLocalDev) {
+  // ✅ Local dev: explicitly force localhost
+  if (firstOrigin.includes("localhost:3000")) {
     return "http://localhost:3000";
   }
 
-  // Production / preview: derive from request headers first
-  const xfProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const xfHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-  const hostRaw = xfHost || req.headers.get("host")?.trim() || "";
-  const host = hostRaw.replace(/^127\.0\.0\.1(?=:\d+|$)/, "localhost");
-
-  if (host) {
-    const proto = xfProto || "https";
-    return `${proto}://${host}`.replace(/\/$/, "");
+  // ✅ Production / Preview: ALWAYS prefer configured canonical origin
+  if (firstOrigin) {
+    return firstOrigin.replace(/\/$/, "");
   }
 
-  // Fallback: first APP_ORIGINS entry
-  return (firstOrigin || "https://example.com").replace(/\/$/, "");
+  // Fallback (should rarely happen)
+  const xfProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "https";
+  const xfHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const host = xfHost || req.headers.get("host")?.trim() || "";
+
+  return `${xfProto}://${host}`.replace(/\/$/, "");
 }
+
 
 export async function POST(req: Request) {
   try {

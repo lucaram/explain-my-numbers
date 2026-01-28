@@ -27,7 +27,10 @@ export type EntitlementResult = {
   cancelAt?: number | null;
 };
 
-const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "emn_session";
+const SESSION_ID_COOKIE_NAME = process.env.SESSION_ID_COOKIE_NAME || "emn_sid"; // ✅ new
+const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "emn_session"; // legacy fallback
+
+const SESSION_KEY_PREFIX = "emn:sess:";
 
 function getStripe() {
   const key = String(process.env.STRIPE_SECRET_KEY ?? "").trim();
@@ -64,7 +67,7 @@ function getCurrentPeriodEndFromSubscription(sub: Stripe.Subscription): number |
  * Base64url helpers
  * -------------------------- */
 function base64urlToBuffer(s: string) {
-  const pad = 4 - (s.length % 4 || 4);
+  const pad = (4 - (s.length % 4 || 4)) % 4;
   const b64 = (s + "=".repeat(pad)).replace(/-/g, "+").replace(/_/g, "/");
   return Buffer.from(b64, "base64");
 }
@@ -93,7 +96,7 @@ function parseCookies(header: string | null) {
 }
 
 /** --------------------------
- * Session verification (signed cookie: body.sig)
+ * Session verification (signed cookie: body.sig) — legacy fallback
  * -------------------------- */
 type SessionPayload = {
   v: number;
@@ -124,10 +127,49 @@ function verifySignedValue(value: string, magicSecret: string): SessionPayload |
     if (!parsed || typeof parsed !== "object") return null;
     if (parsed.v !== 1) return null;
     if (typeof parsed.email !== "string" || !parsed.email.includes("@")) return null;
-    if (typeof parsed.stripeCustomerId !== "string" || !parsed.stripeCustomerId.startsWith("cus_"))
-      return null;
+    if (typeof parsed.stripeCustomerId !== "string" || !parsed.stripeCustomerId.startsWith("cus_")) return null;
 
     return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** --------------------------
+ * Redis session (emn_sid -> emn:sess:<sid>) — new
+ * -------------------------- */
+type RedisSession = {
+  v: 1;
+  email: string;
+  stripeCustomerId: string;
+  iat: number;
+  sid: string;
+  trialEndsAt?: number | null;
+  trialSubscriptionId?: string | null;
+};
+
+function sessionKey(sid: string) {
+  return `${SESSION_KEY_PREFIX}${sid}`;
+}
+
+function isValidRedisSession(x: any): x is RedisSession {
+  if (!x || typeof x !== "object") return false;
+  if (x.v !== 1) return false;
+  if (typeof x.email !== "string" || !x.email.includes("@")) return false;
+  if (typeof x.stripeCustomerId !== "string" || !x.stripeCustomerId.startsWith("cus_")) return false;
+  if (typeof x.sid !== "string" || x.sid.length < 10) return false;
+  return true;
+}
+
+async function readRedisSessionFromRequest(req: Request): Promise<RedisSession | null> {
+  const cookies = parseCookies(req.headers.get("cookie"));
+  const sid = String(cookies[SESSION_ID_COOKIE_NAME] ?? "").trim();
+  if (!sid) return null;
+
+  try {
+    const redis = getRedis();
+    const got = await redis.get<RedisSession>(sessionKey(sid));
+    return got && isValidRedisSession(got) ? got : null;
   } catch {
     return null;
   }
@@ -413,11 +455,90 @@ export async function getEntitlementFromRequest(req: Request): Promise<Entitleme
   const nowSec = Math.floor(Date.now() / 1000);
 
   // Always try to parse/verify the session first so we can use it as a fallback.
-  let session: SessionPayload | null = null;
+  let session: SessionPayload | null = null; // legacy fallback only
   let email = "";
   let stripeCustomerId = "";
 
   try {
+    // ✅ 0) Preferred: Redis session via emn_sid
+    const redisSession = await readRedisSessionFromRequest(req);
+    if (redisSession) {
+      email = String(redisSession.email ?? "").trim().toLowerCase();
+      stripeCustomerId = String(redisSession.stripeCustomerId ?? "").trim();
+
+      if (!stripeCustomerId) return { canExplain: false, reason: "no_customer" };
+
+      // 1) Session-based trial hint (Redis)
+      if (typeof redisSession.trialEndsAt === "number" && redisSession.trialEndsAt > nowSec) {
+        const snap = await readSnapshot(stripeCustomerId);
+
+        if (snap && snap.status !== "unknown") {
+          if (snap.status === "active") {
+            // fall through
+          } else if (
+            snap.status === "past_due" &&
+            typeof snap.currentPeriodEnd === "number" &&
+            snap.currentPeriodEnd > nowSec
+          ) {
+            // fall through
+          } else if (snap.status === "trialing") {
+            return entitlementFromSnapshot(snap, email, nowSec);
+          } else {
+            // fall through
+          }
+        } else {
+          const stripe = getStripe();
+          const subs = await stripe.subscriptions.list({
+            customer: stripeCustomerId,
+            status: "all",
+            limit: 50,
+            expand: ["data.items.data.price"],
+          });
+
+          const { ent, snap: snapToWrite } = entitlementFromStripeList(stripeCustomerId, email, nowSec, subs);
+          writeSnapshot(stripeCustomerId, snapToWrite).catch(() => null);
+
+          if (ent.reason === "trial_active") return ent;
+        }
+        // fall through
+      }
+
+      // 2) Redis snapshot fast-path (webhook cache)
+      const snap = await readSnapshot(stripeCustomerId);
+      if (snap && snap.status !== "unknown") {
+        if (snap.status === "trialing" || snap.status === "active") {
+          const stripe = getStripe();
+          const subs = await stripe.subscriptions.list({
+            customer: stripeCustomerId,
+            status: "all",
+            limit: 50,
+            expand: ["data.items.data.price"],
+          });
+
+          const { ent, snap: snapToWrite } = entitlementFromStripeList(stripeCustomerId, email, nowSec, subs);
+          writeSnapshot(stripeCustomerId, snapToWrite).catch(() => null);
+          return ent;
+        }
+
+        return entitlementFromSnapshot(snap, email, nowSec);
+      }
+
+      // 3) Stripe fallback (authoritative)
+      const stripe = getStripe();
+      const subs = await stripe.subscriptions.list({
+        customer: stripeCustomerId,
+        status: "all",
+        limit: 50,
+        expand: ["data.items.data.price"],
+      });
+
+      const { ent, snap: snapToWrite } = entitlementFromStripeList(stripeCustomerId, email, nowSec, subs);
+      writeSnapshot(stripeCustomerId, snapToWrite).catch(() => null);
+
+      return ent;
+    }
+
+    // ✅ 0b) Fallback: legacy signed cookie emn_session
     const magicSecret = getMagicSecret();
 
     const cookies = parseCookies(req.headers.get("cookie"));
@@ -432,13 +553,10 @@ export async function getEntitlementFromRequest(req: Request): Promise<Entitleme
 
     email = String(session.email ?? "").trim().toLowerCase();
 
-    // 1) Session-based trial hint:
-    // ✅ If the cookie says trial is active, we still must ensure Stripe does NOT already show active.
+    // 1) Session-based trial hint (legacy cookie)
     if (typeof session.trialEndsAt === "number" && session.trialEndsAt > nowSec) {
-      // try snapshot first
       const snap = await readSnapshot(stripeCustomerId);
 
-      // If snapshot already shows a real subscription state (active/past_due), do NOT return trial.
       if (snap && snap.status !== "unknown") {
         if (snap.status === "active") {
           // fall through
@@ -454,7 +572,6 @@ export async function getEntitlementFromRequest(req: Request): Promise<Entitleme
           // fall through
         }
       } else {
-        // Snapshot missing/unknown → do ONE Stripe check (deterministic)
         const stripe = getStripe();
         const subs = await stripe.subscriptions.list({
           customer: stripeCustomerId,
@@ -474,7 +591,6 @@ export async function getEntitlementFromRequest(req: Request): Promise<Entitleme
     // 2) Redis snapshot fast-path (written by webhook)
     const snap = await readSnapshot(stripeCustomerId);
     if (snap && snap.status !== "unknown") {
-      // ✅ snapshots can be stale when user changes portal state
       if (snap.status === "trialing" || snap.status === "active") {
         const stripe = getStripe();
         const subs = await stripe.subscriptions.list({
@@ -507,10 +623,34 @@ export async function getEntitlementFromRequest(req: Request): Promise<Entitleme
     return ent;
   } catch (e) {
     // ✅ Reliability fallback:
-    // If Stripe/Redis fails temporarily, trust the signed cookie enough to avoid locking users out.
+    // If Stripe/Redis fails temporarily, trust session hints enough to avoid locking users out.
+    // Priority: Redis session -> legacy signed cookie.
+
+    try {
+      const redisSession = await readRedisSessionFromRequest(req);
+      if (redisSession) {
+        const sidEmail = String(redisSession.email ?? "").trim().toLowerCase();
+        const sidCustomerId = String(redisSession.stripeCustomerId ?? "").trim();
+
+        if (sidCustomerId && typeof redisSession.trialEndsAt === "number" && redisSession.trialEndsAt > nowSec) {
+          return {
+            canExplain: true,
+            reason: "trial_active",
+            stripeCustomerId: sidCustomerId,
+            email: sidEmail,
+            trialEndsAt: redisSession.trialEndsAt ?? null,
+            activeSubscriptionId: redisSession.trialSubscriptionId ?? null,
+            cancelAtPeriodEnd: null,
+            currentPeriodEnd: null,
+            cancelAt: null,
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
 
     if (session && stripeCustomerId) {
-      // Trial still active according to cookie
       if (typeof session.trialEndsAt === "number" && session.trialEndsAt > nowSec) {
         return {
           canExplain: true,
@@ -524,9 +664,6 @@ export async function getEntitlementFromRequest(req: Request): Promise<Entitleme
           cancelAt: null,
         };
       }
-
-      // If you ever decide to store "known subscription" hints in the cookie later,
-      // you could extend this. For now we only do the safe trial fallback.
     }
 
     return { canExplain: false, reason: "stripe_error" };
