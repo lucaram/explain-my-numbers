@@ -3,11 +3,11 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
-import { createHmac, timingSafeEqual, createHash, randomBytes } from "crypto";
+import { createHmac, timingSafeEqual, randomBytes } from "crypto";
 
 export const runtime = "nodejs";
 
-// ✅ NEW: session cookie now stores only a session id (sid)
+// ✅ New: session cookie now stores only a session id (sid)
 const SESSION_ID_COOKIE_NAME = process.env.SESSION_ID_COOKIE_NAME || "emn_sid";
 
 // (kept: your old name env may still exist elsewhere; leave it for now)
@@ -36,7 +36,7 @@ function verifySignedToken(token: string, magicSecret: string) {
 
     const expectedSig = base64url(createHmac("sha256", magicSecret).update(body).digest());
 
-    // Important: timingSafeEqual requires equal length buffers
+    // timingSafeEqual requires equal-length buffers
     const a = Buffer.from(sig);
     const b = Buffer.from(expectedSig);
     if (a.length !== b.length) return null;
@@ -54,7 +54,6 @@ function getCanonicalOrigin(req: Request, fallbackOrigins: string) {
   const isDev = process.env.NODE_ENV === "development";
   if (isDev) return "http://localhost:3000";
 
-  // ✅ Prefer configured origin (canonical)
   const first = (fallbackOrigins || "")
     .split(",")
     .map((s) => s.trim())
@@ -62,7 +61,6 @@ function getCanonicalOrigin(req: Request, fallbackOrigins: string) {
 
   if (first) return first.replace(/\/$/, "");
 
-  // Fallback to request host
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
   const proto = req.headers.get("x-forwarded-proto") || "https";
   if (host.includes("localhost")) return "http://localhost:3000";
@@ -147,7 +145,15 @@ type SessionPayload = {
   trialSubscriptionId?: string | null;
 };
 
-// ✅ NEW: create a real random session id (don’t derive from nonce)
+type MagicIntent = "trial" | "login" | "subscribe";
+
+function normalizeIntent(x: any): MagicIntent {
+  if (x === "trial" || x === "login" || x === "subscribe") return x;
+  // Back-compat: if older tokens used "subscribe" only, treat unknown as subscribe
+  return "subscribe";
+}
+
+// ✅ Create a real random session id (don’t derive from nonce)
 function createSessionId() {
   return base64url(randomBytes(24)); // ~32 chars url-safe
 }
@@ -156,9 +162,41 @@ function sessionKey(sid: string) {
   return `${SESSION_KEY_PREFIX}${sid}`;
 }
 
-// ✅ NEW: store session payload in Redis (server-side)
+// ✅ Store session payload in Redis (server-side)
 async function writeSession(redis: Redis, session: SessionPayload) {
   await redis.set(sessionKey(session.sid), session, { ex: SESSION_TTL_SECONDS });
+}
+
+/**
+ * ✅ Lightweight helper: find the “best” current subscription for this customer
+ * We only need enough to set trialEndsAt for UI chips on the new device.
+ */
+async function getBestSubForCustomer(stripe: Stripe, customerId: string) {
+  const subs = await stripe.subscriptions.list({
+    customer: customerId,
+    status: "all",
+    limit: 20,
+  });
+
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  // Prefer: active, then past_due (still within period), then trialing
+  const active = subs.data.find((s) => s.status === "active");
+  if (active) return active;
+
+  const pastDue = subs.data.find((s) => {
+    if (s.status !== "past_due") return false;
+    const cpe = typeof (s as any)?.current_period_end === "number" ? (s as any).current_period_end : null;
+    return typeof cpe === "number" && cpe > nowSec;
+  });
+  if (pastDue) return pastDue;
+
+  const trialing = subs.data.find(
+    (s) => s.status === "trialing" && typeof s.trial_end === "number" && s.trial_end > nowSec
+  );
+  if (trialing) return trialing;
+
+  return null;
 }
 
 /** --------------------------
@@ -177,10 +215,12 @@ export async function GET(req: Request) {
   }
 
   const redis = Redis.fromEnv();
-  const stripe = new Stripe(STRIPE_SECRET_KEY!);
+  const stripe = new Stripe(String(STRIPE_SECRET_KEY ?? "").trim());
 
   try {
     const token = url.searchParams.get("token") || "";
+    const secret = String(MAGIC_LINK_SECRET ?? "").trim();
+    if (!secret) return NextResponse.redirect(`${origin}/?magic=error&reason=missing_secret`);
 
     // 1) Rate Limit
     const ratelimit = new Ratelimit({
@@ -192,12 +232,14 @@ export async function GET(req: Request) {
     if (!rl.success) return NextResponse.redirect(`${origin}/?magic=error&reason=rate_limited`);
 
     // 2) Verify Token
-    const payload = verifySignedToken(token, MAGIC_LINK_SECRET!);
+    const payload = verifySignedToken(token, secret);
     const nowSec = Math.floor(Date.now() / 1000);
 
     if (!payload || payload.exp < nowSec || payload.typ !== "magic_link") {
       return NextResponse.redirect(`${origin}/?magic=error&reason=invalid_token`);
     }
+
+    const intent = normalizeIntent(payload.intent);
 
     // 3) Nonce (One-time use)
     const nonceKey = `emn:magic:nonce:${payload.nonce}`;
@@ -205,48 +247,104 @@ export async function GET(req: Request) {
     if (used) return NextResponse.redirect(`${origin}/?magic=error&reason=link_used`);
     await redis.set(nonceKey, "1", { ex: MAGIC_NONCE_TTL_SECONDS });
 
-    // ✅ NEW: each device gets its own independent session id
+    // ✅ Each device gets its own independent session id
     const sid = createSessionId();
 
     const baseSession: SessionPayload = {
       v: 1,
-      email: payload.email,
-      stripeCustomerId: payload.stripeCustomerId,
+      email: String(payload.email ?? "").trim().toLowerCase(),
+      stripeCustomerId: String(payload.stripeCustomerId ?? "").trim(),
       iat: nowSec,
       sid,
     };
 
-    // ✅ Determine pricing by country (GB=>GBP, EU=>EUR, else=>USD)
+    if (!baseSession.email || !baseSession.email.includes("@") || !baseSession.stripeCustomerId.startsWith("cus_")) {
+      return NextResponse.redirect(`${origin}/?magic=error&reason=invalid_payload`);
+    }
+
+    // ✅ Determine pricing by country (only needed for trial creation and subscribe checkout)
     const country = getRequestCountry(req);
     const { priceId, currency } = pickMonthlyPriceIdForCountry(country);
 
-    // --- TRIAL Intent ---
-    if (payload.intent === "trial") {
-      const customer = (await stripe.customers.retrieve(payload.stripeCustomerId)) as Stripe.Customer;
-      const md = (customer.metadata ?? {}) as Record<string, string | undefined>;
-      const subs = await stripe.subscriptions.list({ customer: payload.stripeCustomerId, limit: 1 });
+    /**
+     * ✅ INTENT: LOGIN
+     * - Don’t create trial
+     * - Just set Redis session + cookies
+     * - Try to set emn_trial_ends from Stripe so chip shows immediately
+     */
+    if (intent === "login") {
+      let session: SessionPayload = { ...baseSession };
 
+      try {
+        const best = await getBestSubForCustomer(stripe, baseSession.stripeCustomerId);
+        if (best && best.status === "trialing" && typeof best.trial_end === "number") {
+          session = {
+            ...session,
+            trialEndsAt: best.trial_end,
+            trialSubscriptionId: best.id,
+          };
+        }
+      } catch {
+        // ignore — entitlement API will still work via emn_sid + snapshot/Stripe
+      }
+
+      const res = NextResponse.redirect(`${origin}/?magic=success&intent=login`);
+
+      await writeSession(redis, session);
+      setSessionIdCookie(res, session.sid, isDev);
+
+      if (typeof session.trialEndsAt === "number") {
+        res.cookies.set({
+          name: "emn_trial_ends",
+          value: String(session.trialEndsAt),
+          httpOnly: false,
+          secure: !isDev,
+          sameSite: "lax",
+          path: "/",
+          maxAge: SESSION_TTL_SECONDS,
+        });
+      }
+
+      return res;
+    }
+
+    /**
+     * ✅ INTENT: TRIAL
+     * - Create trial subscription only if eligible
+     */
+    if (intent === "trial") {
+      const customer = (await stripe.customers.retrieve(baseSession.stripeCustomerId)) as
+        | Stripe.Customer
+        | Stripe.DeletedCustomer;
+
+      if ((customer as any)?.deleted) {
+        return NextResponse.redirect(`${origin}/?magic=error&reason=no_customer`);
+      }
+
+      const md = ((customer as Stripe.Customer).metadata ?? {}) as Record<string, string | undefined>;
+      const subs = await stripe.subscriptions.list({ customer: baseSession.stripeCustomerId, limit: 1 });
+
+      // If already subscribed or trial used, treat as LOGIN (don’t block device)
       if (subs.data.length > 0 || md.emn_trial_used === "1") {
         const res = NextResponse.redirect(`${origin}/?magic=ok&intent=subscribe_required`);
 
-        // ✅ write session to Redis + set sid cookie
         await writeSession(redis, baseSession);
         setSessionIdCookie(res, baseSession.sid, isDev);
 
         return res;
       }
 
-      // FIXED: Unique Idempotency Keys
+      // Create trial subscription
       const sub = await stripe.subscriptions.create(
         {
-          customer: payload.stripeCustomerId,
+          customer: baseSession.stripeCustomerId,
           items: [{ price: priceId, quantity: 1 }],
           trial_period_days: TRIAL_DAYS,
           cancel_at_period_end: true,
           metadata: {
             product: "explain_my_numbers",
             created_by: "verify_magic_link_trial",
-            email: payload.email,
+            email: baseSession.email,
             pricing_country: country,
             pricing_currency: currency,
             pricing_price_id: priceId,
@@ -256,7 +354,7 @@ export async function GET(req: Request) {
       );
 
       await stripe.customers.update(
-        payload.stripeCustomerId,
+        baseSession.stripeCustomerId,
         {
           metadata: { ...md, emn_trial_used: "1", emn_trial_used_at: String(nowSec) },
         },
@@ -271,7 +369,6 @@ export async function GET(req: Request) {
 
       const res = NextResponse.redirect(`${origin}/?magic=success&intent=trial`);
 
-      // ✅ write session to Redis + set sid cookie
       await writeSession(redis, sessionWithTrial);
       setSessionIdCookie(res, sessionWithTrial.sid, isDev);
 
@@ -289,10 +386,12 @@ export async function GET(req: Request) {
       return res;
     }
 
-    // --- SUBSCRIBE Intent ---
+    /**
+     * ✅ INTENT: SUBSCRIBE
+     */
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
-      customer: payload.stripeCustomerId,
+      customer: baseSession.stripeCustomerId,
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${origin}/?subscribe=success`,
       cancel_url: `${origin}/?subscribe=cancel`,
@@ -300,7 +399,7 @@ export async function GET(req: Request) {
       metadata: {
         product: "explain_my_numbers",
         created_by: "verify_magic_link_subscribe",
-        email: payload.email,
+        email: baseSession.email,
         pricing_country: country,
         pricing_currency: currency,
         pricing_price_id: priceId,
@@ -309,7 +408,6 @@ export async function GET(req: Request) {
 
     const res = NextResponse.redirect(checkout.url!, { status: 303 });
 
-    // ✅ write session to Redis + set sid cookie
     await writeSession(redis, baseSession);
     setSessionIdCookie(res, baseSession.sid, isDev);
 
@@ -320,7 +418,7 @@ export async function GET(req: Request) {
   }
 }
 
-// ✅ NEW: only set emn_sid cookie now
+// ✅ Only set emn_sid cookie now
 function setSessionIdCookie(res: NextResponse, sid: string, devMode: boolean) {
   res.cookies.set({
     name: SESSION_ID_COOKIE_NAME,
@@ -333,7 +431,6 @@ function setSessionIdCookie(res: NextResponse, sid: string, devMode: boolean) {
   });
 
   // ✅ Optional safety: clear the old cookie if it exists
-  // (prevents confusion if some routes still look for emn_session temporarily)
   res.cookies.set({
     name: SESSION_COOKIE_NAME,
     value: "",

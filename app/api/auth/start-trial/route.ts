@@ -102,7 +102,7 @@ function hasUsedTrial(customer: Stripe.Customer) {
 }
 
 /**
- * ✅ IMPORTANT (Gemini-style fix, but safe):
+ * ✅ IMPORTANT:
  * In local dev, ALWAYS generate the link to http://localhost:3000
  * so cookies get set on localhost (not 127.0.0.1).
  */
@@ -132,7 +132,6 @@ function getCanonicalOriginForEmail(req: Request, appOrigins: string) {
   return `${xfProto}://${host}`.replace(/\/$/, "");
 }
 
-
 export async function POST(req: Request) {
   try {
     const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
@@ -159,7 +158,6 @@ export async function POST(req: Request) {
     const lang = url.searchParams.get("lang") || req.headers.get("accept-language") || "en";
 
     const stripe = new Stripe(STRIPE_SECRET_KEY);
-
     const redis = Redis.fromEnv();
 
     // --------------------------
@@ -234,29 +232,14 @@ export async function POST(req: Request) {
       await redis.set(customerKey(rawEmail), customer.id, { ex: 60 * 60 * 24 * 365 });
     }
 
-    // ✅ Trial eligibility
+    // ✅ CRITICAL FIX:
+    // Decide intent:
+    // - "trial" for first-time eligible users
+    // - otherwise "login" (still send a magic link so user can continue on another device)
     const everSubscribed = await hasEverHadSubscription(stripe, customer.id);
-    if (everSubscribed) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: tAuthTrial(lang, "TRIAL_NOT_ELIGIBLE"),
-          error_code: "TRIAL_NOT_ELIGIBLE",
-        },
-        { status: 409 }
-      );
-    }
+    const usedTrial = hasUsedTrial(customer);
 
-    if (hasUsedTrial(customer)) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: tAuthTrial(lang, "TRIAL_ALREADY_USED"),
-          error_code: "TRIAL_ALREADY_USED",
-        },
-        { status: 409 }
-      );
-    }
+    const intent: "trial" | "login" = everSubscribed || usedTrial ? "login" : "trial";
 
     // 2) Create signed magic link token
     const nonce = base64url(randomBytes(16));
@@ -267,7 +250,7 @@ export async function POST(req: Request) {
       {
         v: 1,
         typ: "magic_link",
-        intent: "trial",
+        intent, // ✅ "trial" OR "login"
         email: rawEmail,
         stripeCustomerId: customer.id,
         iat: nowSec,
@@ -282,18 +265,31 @@ export async function POST(req: Request) {
     const verifyUrl = `${origin}/api/auth/verify-magic-link?token=${encodeURIComponent(token)}`;
 
     // 3) Email the link
+    // If your sendMagicLinkEmail typing only allows mode: "trial",
+    // we pass "login" safely without breaking runtime.
     await sendMagicLinkEmail({
       to: rawEmail,
       verifyUrl,
-      mode: "trial",
+      mode: intent as any, // ✅ "trial" | "login"
       trialDays: TRIAL_DAYS,
       lang: lang,
     });
 
+    // ✅ Always return ok:true so the UI never blocks cross-device sign-in.
+    // Frontend can show a different message based on `intent`.
     return NextResponse.json({
       ok: true,
-      message: "Magic link sent.",
+      mode: intent, // "trial" | "login"
+      message:
+        intent === "trial"
+          ? "Magic link sent."
+          : "Magic link sent. Use it to sign in on this device.",
       email: maskEmail(rawEmail),
+
+      // helpful debug flags (safe to keep or remove)
+      trialEligible: intent === "trial",
+      hadSubscription: everSubscribed,
+      trialAlreadyUsed: usedTrial,
     });
   } catch (e) {
     console.error("start-trial failed:", e);

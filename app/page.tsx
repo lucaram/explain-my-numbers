@@ -2311,11 +2311,15 @@ useEffect(() => {
     }
 
     // ✅ Success UX
-    setMagicNote(
-      magicIntent === "trial"
-        ? t(uiLang, "MAGIC_LINK_TRIAL_SENT")
+// ✅ Success UX (trial vs login awareness)
+setMagicNote(
+  magicIntent === "trial"
+    ? (body?.mode === "login"
+        ? "Magic link sent — this will log you into your existing trial."
+        : t(uiLang, "MAGIC_LINK_TRIAL_SENT"))
     : t(uiLang, "MAGIC_LINK_SUBSCRIBE_SENT")
-    );
+);
+
   } catch (err) {
     // 🔴 Only truly unexpected errors land here
     console.error("Unexpected magic link error:", err);
