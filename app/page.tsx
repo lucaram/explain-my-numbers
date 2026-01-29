@@ -2291,10 +2291,10 @@ useEffect(() => {
       return;
     }
 
-    const endpoint =
-      magicIntent === "trial"
-        ? "/api/auth/start-trial"
-        : "/api/auth/start-subscribe";
+ const endpoint =
+  magicIntent === "subscribe"
+    ? "/api/auth/start-subscribe"
+    : "/api/auth/start-trial";
 
     const r = await fetch(endpoint, {
       method: "POST",
@@ -2303,6 +2303,8 @@ useEffect(() => {
     });
 
     const body = await r.json().catch(() => null);
+    console.log("[magiclink]", { magicIntent, endpoint, mode: body?.mode, ok: body?.ok });
+
 
     // 🟡 Graceful handling of known backend responses
     if (!r.ok || !body?.ok) {
