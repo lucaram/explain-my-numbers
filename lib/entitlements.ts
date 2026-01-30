@@ -35,7 +35,7 @@ const SESSION_KEY_PREFIX = "emn:sess:";
 function getStripe() {
   const key = String(process.env.STRIPE_SECRET_KEY ?? "").trim();
   if (!key) throw new Error("Missing STRIPE_SECRET_KEY.");
-  return new Stripe(key);
+  return new Stripe(key, { apiVersion: "2023-10-16" as any });
 }
 
 function getRedis() {
@@ -52,12 +52,12 @@ function getMagicSecret() {
  * Stripe helper: current period end
  * -------------------------- */
 function getCurrentPeriodEndFromSubscription(sub: Stripe.Subscription): number | null {
-  const direct = (sub as unknown as { current_period_end?: unknown }).current_period_end;
+  const direct = (sub as any).current_period_end;
   if (typeof direct === "number") return direct;
 
   const items = sub.items?.data;
   if (Array.isArray(items) && items.length > 0) {
-    const item = items[0] as unknown as { current_period_end?: unknown };
+    const item = items[0] as any;
     if (typeof item.current_period_end === "number") return item.current_period_end;
   }
   return null;

@@ -9,6 +9,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+/** --------------------------
+ * Helpers
+ * -------------------------- */
+
 function getClientIp(req: Request) {
   const xf = req.headers.get("x-forwarded-for");
   if (xf) {
@@ -32,12 +36,17 @@ function getClientIp(req: Request) {
   return `unknown:${key}`;
 }
 
+/** --------------------------
+ * Main GET Route
+ * -------------------------- */
+
 export async function GET(req: Request) {
-  // ✅ Lightweight IP rate limit (protects Stripe/Redis work inside entitlement)
+  // ✅ Redis instance for rate limiting (coherent with auth routes)
   const redis = Redis.fromEnv();
+  
   const ratelimit = new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(60, "60 s"), // 60/min/IP
+    limiter: Ratelimit.slidingWindow(60, "60 s"), // 60 requests per minute per IP
     analytics: false,
     prefix: "emn:ent:rl",
   });
@@ -51,9 +60,14 @@ export async function GET(req: Request) {
     );
   }
 
+  /**
+   * ✅ Coherence: getEntitlementFromRequest now looks up the Redis session 
+   * via the session ID cookie (emn_sid) to determine the customer's Stripe state.
+   */
   const ent = await getEntitlementFromRequest(req);
   const nowSec = Math.floor(Date.now() / 1000);
 
+  // Extract subscription state from entitlement payload
   const cancelAtPeriodEnd =
     typeof (ent as any)?.cancelAtPeriodEnd === "boolean" ? (ent as any).cancelAtPeriodEnd : null;
 
@@ -62,7 +76,11 @@ export async function GET(req: Request) {
 
   const cancelAt = typeof (ent as any)?.cancelAt === "number" ? (ent as any).cancelAt : null;
 
-  // ✅ Treat either cancel_at_period_end OR cancel_at (future) as cancelling
+  /**
+   * ✅ Logic: Handle "Cancelling" state.
+   * If they are active but scheduled to end, we map the reason so the UI 
+   * can show "Cancelled (ends on [Date])" instead of just "Active".
+   */
   const isCancelling =
     cancelAtPeriodEnd === true || (typeof cancelAt === "number" && cancelAt > nowSec);
 
@@ -75,12 +93,13 @@ export async function GET(req: Request) {
     reason: mappedReason,
     trialEndsAt: ent.trialEndsAt ?? null,
 
-    // ✅ extra optional fields
+    // ✅ Metadata for UI billing management
     cancelAtPeriodEnd,
     currentPeriodEnd,
     cancelAt,
 
     activeSubscriptionId: (ent as any)?.activeSubscriptionId ?? null,
+    // Coherence with legacy UI field names if necessary
     chosenSubscriptionId: (ent as any)?.activeSubscriptionId ?? null,
   });
 }

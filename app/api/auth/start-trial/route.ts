@@ -83,7 +83,6 @@ async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
 
 /**
  * ✅ Stripe Customer lookup (cross-device safe)
- * - If Redis is missing/stale, we search Stripe by email before creating a new customer.
  */
 async function findCustomerByEmail(stripe: Stripe, email: string): Promise<Stripe.Customer | null> {
   try {
@@ -91,7 +90,7 @@ async function findCustomerByEmail(stripe: Stripe, email: string): Promise<Strip
       query: `email:"${email}"`,
       limit: 1,
     });
-    return res.data[0] ?? null;
+    return (res.data[0] as Stripe.Customer) ?? null;
   } catch {
     return null;
   }
@@ -110,7 +109,7 @@ async function hasEverHadSubscription(stripe: Stripe, customerId: string) {
 }
 
 /**
- * ✅ Trial already used flag stored on Stripe customer metadata.
+ * ✅ Trial already used flag
  */
 function hasUsedTrial(customer: Stripe.Customer) {
   const md = (customer.metadata ?? {}) as Record<string, string | undefined>;
@@ -118,29 +117,23 @@ function hasUsedTrial(customer: Stripe.Customer) {
 }
 
 /**
- * ✅ IMPORTANT:
- * In local dev, ALWAYS generate the link to http://localhost:3000
- * so cookies get set on localhost (not 127.0.0.1).
+ * ✅ Forced Canonical Origin for Localhost
  */
 function getCanonicalOriginForEmail(req: Request, appOrigins: string) {
-  // Take the first configured origin (canonical)
   const firstOrigin =
     (appOrigins || "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)[0] || "";
 
-  // ✅ Local dev: explicitly force localhost
   if (firstOrigin.includes("localhost:3000")) {
     return "http://localhost:3000";
   }
 
-  // ✅ Production / Preview: ALWAYS prefer configured canonical origin
   if (firstOrigin) {
     return firstOrigin.replace(/\/$/, "");
   }
 
-  // Fallback (should rarely happen)
   const xfProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "https";
   const xfHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
   const host = xfHost || req.headers.get("host")?.trim() || "";
@@ -150,57 +143,42 @@ function getCanonicalOriginForEmail(req: Request, appOrigins: string) {
 
 export async function POST(req: Request) {
   try {
-    const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-    const APP_ORIGINS = process.env.APP_ORIGINS;
-    const MAGIC_LINK_SECRET = process.env.MAGIC_LINK_SECRET;
-    const RESEND_API_KEY = process.env.RESEND_API_KEY;
-    const EMAIL_FROM = process.env.EMAIL_FROM;
+    const { 
+      STRIPE_SECRET_KEY, 
+      APP_ORIGINS, 
+      MAGIC_LINK_SECRET, 
+      RESEND_API_KEY, 
+      EMAIL_FROM 
+    } = process.env;
 
-    if (!STRIPE_SECRET_KEY) {
-      return NextResponse.json({ ok: false, error: "Missing STRIPE_SECRET_KEY." }, { status: 500 });
-    }
-    if (!APP_ORIGINS) {
-      return NextResponse.json({ ok: false, error: "Missing APP_ORIGINS." }, { status: 500 });
-    }
-    if (!MAGIC_LINK_SECRET) {
-      return NextResponse.json({ ok: false, error: "Missing MAGIC_LINK_SECRET." }, { status: 500 });
-    }
-    if (!RESEND_API_KEY || !EMAIL_FROM) {
-      return NextResponse.json({ ok: false, error: "Missing email configuration." }, { status: 500 });
+    if (!STRIPE_SECRET_KEY || !APP_ORIGINS || !MAGIC_LINK_SECRET || !RESEND_API_KEY || !EMAIL_FROM) {
+      return NextResponse.json({ ok: false, error: "Missing server configuration." }, { status: 500 });
     }
 
-    // ✅ Determine language (query param wins, then Accept-Language)
     const url = new URL(req.url);
     const lang = url.searchParams.get("lang") || req.headers.get("accept-language") || "en";
 
     const stripe = new Stripe(STRIPE_SECRET_KEY);
     const redis = Redis.fromEnv();
 
-    // --------------------------
-    // ✅ Rate limiting
-    // --------------------------
+    // Rate Limiting
     const ip = getClientIp(req);
-
     const ipRatelimit = new Ratelimit({
       redis,
       limiter: Ratelimit.slidingWindow(10, "10 m"),
-      analytics: false,
       prefix: "emn:auth:trial:ip",
     });
-
     const emailRatelimit = new Ratelimit({
       redis,
       limiter: Ratelimit.slidingWindow(3, "30 m"),
-      analytics: false,
       prefix: "emn:auth:trial:email",
     });
 
     const rlIp = await applyRateLimit(ipRatelimit, `ip:${ip}`);
     if (!rlIp.ok) {
-      const retry = rlIp.retryAfterSec ?? 600;
       return NextResponse.json(
         { ok: false, error: "Too many requests. Please try again soon.", error_code: "RATE_LIMITED" },
-        { status: 429, headers: { "Retry-After": String(retry) } }
+        { status: 429 }
       );
     }
 
@@ -216,97 +194,70 @@ export async function POST(req: Request) {
 
     const rlEmail = await applyRateLimit(emailRatelimit, `email:${hashEmailKey(rawEmail)}`);
     if (!rlEmail.ok) {
-      const retry = rlEmail.retryAfterSec ?? 1800;
       return NextResponse.json(
         { ok: false, error: tAuthTrial(lang, "RATE_LIMITED_EMAIL"), error_code: "RATE_LIMITED" },
-        { status: 429, headers: { "Retry-After": String(retry) } }
+        { status: 429 }
       );
     }
 
-    // 1) Find or create Stripe Customer (Redis-first, Stripe-email-search fallback)
+    // 1) Customer Resolution
     let customerId = await redis.get<string>(customerKey(rawEmail));
     let customer: Stripe.Customer | null = null;
 
-    // A) Try Redis -> retrieve customer
     if (customerId) {
       try {
-        const got = (await stripe.customers.retrieve(customerId)) as Stripe.Customer | Stripe.DeletedCustomer;
-        customer = (got as any)?.deleted ? null : (got as Stripe.Customer);
-      } catch {
-        customer = null;
-      }
+        const got = await stripe.customers.retrieve(customerId);
+        if (!(got as any).deleted) customer = got as Stripe.Customer;
+      } catch { customer = null; }
     }
 
-    // B) If Redis miss/stale, search Stripe by email (cross-device safe)
     if (!customer) {
       customer = await findCustomerByEmail(stripe, rawEmail);
-
-      // If found in Stripe, refresh Redis to the canonical customer id
-      if (customer?.id) {
+      if (customer) {
         await redis.set(customerKey(rawEmail), customer.id, { ex: 60 * 60 * 24 * 365 });
       }
     }
 
-    // C) Still nothing? Create new customer
     if (!customer) {
       customer = await stripe.customers.create({
         email: rawEmail,
-        metadata: {
-          product: "explain_my_numbers",
-          created_by: "start_trial",
-        },
+        metadata: { product: "explain_my_numbers", created_by: "start_trial" },
       });
-
       await redis.set(customerKey(rawEmail), customer.id, { ex: 60 * 60 * 24 * 365 });
     }
 
-    // ✅ Decide intent:
-    // - "trial" for first-time eligible users
-    // - otherwise "login" (still send a magic link so user can continue on another device)
+    // 2) Intent Decision
     const everSubscribed = await hasEverHadSubscription(stripe, customer.id);
     const usedTrial = hasUsedTrial(customer);
+    const intent: "trial" | "login" = (everSubscribed || usedTrial) ? "login" : "trial";
 
-    const intent: "trial" | "login" = everSubscribed || usedTrial ? "login" : "trial";
-
-    // 2) Create signed magic link token
+    // 3) Token & Link Generation
     const nonce = base64url(randomBytes(16));
     const nowSec = Math.floor(Date.now() / 1000);
     const expSec = nowSec + MAGIC_LINK_TTL_SECONDS;
 
     const token = signToken(
-      {
-        v: 1,
-        typ: "magic_link",
-        intent, // ✅ "trial" OR "login"
-        email: rawEmail,
-        stripeCustomerId: customer.id,
-        iat: nowSec,
-        exp: expSec,
-        nonce,
-      },
+      { v: 1, typ: "magic_link", intent, email: rawEmail, stripeCustomerId: customer.id, iat: nowSec, exp: expSec, nonce },
       MAGIC_LINK_SECRET
     );
 
-    // ✅ Canonical origin (fixes localhost vs 127 cookie mismatch)
     const origin = getCanonicalOriginForEmail(req, APP_ORIGINS);
     const verifyUrl = `${origin}/api/auth/verify-magic-link?token=${encodeURIComponent(token)}`;
 
-    // 3) Email the link
+    // 4) Email Dispatch
     await sendMagicLinkEmail({
       to: rawEmail,
       verifyUrl,
-      mode: intent as any, // ✅ "trial" | "login"
+      mode: intent,
       trialDays: TRIAL_DAYS,
       lang: lang,
     });
 
     return NextResponse.json({
       ok: true,
-      mode: intent, // "trial" | "login"
-      message: intent === "trial" ? "Magic link sent." : "Magic link sent. Use it to sign in on this device.",
+      mode: intent,
+      message: intent === "trial" ? "Magic link sent." : "Magic link sent. Use it to sign in.",
       email: maskEmail(rawEmail),
-
-      // helpful flags (safe to keep or remove)
       trialEligible: intent === "trial",
       hadSubscription: everSubscribed,
       trialAlreadyUsed: usedTrial,

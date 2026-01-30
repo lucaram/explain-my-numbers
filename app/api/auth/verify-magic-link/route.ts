@@ -1,4 +1,3 @@
-// src/app/api/auth/verify-magic-link/route.ts
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { Redis } from "@upstash/redis";
@@ -68,15 +67,7 @@ function getCanonicalOrigin(req: Request, fallbackOrigins: string) {
 }
 
 /**
- * ✅ CRITICAL FIX:
- * If your app is reachable on BOTH:
- *   https://explainmynumbers.app  AND  https://www.explainmynumbers.app
- * then cookies set on one host are NOT visible on the other unless we set a shared cookie domain.
- *
- * This extracts the registrable domain from APP_ORIGINS and returns ".explainmynumbers.app"
- * so cookies work across apex + www.
- *
- * On localhost we return undefined (do not set cookie domain in dev).
+ * ✅ Shared cookie domain helper
  */
 function getCookieDomainFromAppOrigins(appOrigins: string | undefined) {
   const isDev = process.env.NODE_ENV === "development";
@@ -92,18 +83,12 @@ function getCookieDomainFromAppOrigins(appOrigins: string | undefined) {
     const u = new URL(first);
     const host = u.hostname.toLowerCase();
 
-    // If someone configured www.explainmynumbers.app or explainmynumbers.app,
-    // we want ".explainmynumbers.app" so both work.
     if (host === "localhost" || host.endsWith(".localhost")) return undefined;
 
     const parts = host.split(".");
     if (parts.length < 2) return undefined;
 
-    // For "www.explainmynumbers.app" => "explainmynumbers.app"
-    // For "explainmynumbers.app" => "explainmynumbers.app"
-    const base =
-      host.startsWith("www.") ? host.slice(4) : host;
-
+    const base = host.startsWith("www.") ? host.slice(4) : host;
     return `.${base}`;
   } catch {
     return undefined;
@@ -117,10 +102,7 @@ function getClientIp(req: Request) {
 }
 
 /**
- * Country detection:
- * - Prefer Vercel geolocation header when deployed: x-vercel-ip-country
- * - Fallback to Cloudflare: cf-ipcountry
- * - Default to US (matches requirement: "any other country defaults to USD")
+ * Country detection
  */
 function getRequestCountry(req: Request): string {
   const c1 = req.headers.get("x-vercel-ip-country");
@@ -133,33 +115,7 @@ function getRequestCountry(req: Request): string {
 }
 
 const EU_COUNTRIES = new Set([
-  "AT",
-  "BE",
-  "BG",
-  "HR",
-  "CY",
-  "CZ",
-  "DK",
-  "EE",
-  "FI",
-  "FR",
-  "DE",
-  "GR",
-  "HU",
-  "IE",
-  "IT",
-  "LV",
-  "LT",
-  "LU",
-  "MT",
-  "NL",
-  "PL",
-  "PT",
-  "RO",
-  "SK",
-  "SI",
-  "ES",
-  "SE",
+  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
 ]);
 
 function pickMonthlyPriceIdForCountry(country: string) {
@@ -194,25 +150,23 @@ type MagicIntent = "trial" | "login" | "subscribe";
 
 function normalizeIntent(x: any): MagicIntent {
   if (x === "trial" || x === "login" || x === "subscribe") return x;
-  return "subscribe"; // back-compat default
+  return "subscribe";
 }
 
-// ✅ Create a real random session id (don’t derive from nonce)
 function createSessionId() {
-  return base64url(randomBytes(24)); // ~32 chars url-safe
+  return base64url(randomBytes(24));
 }
 
 function sessionKey(sid: string) {
   return `${SESSION_KEY_PREFIX}${sid}`;
 }
 
-// ✅ Store session payload in Redis (server-side)
 async function writeSession(redis: Redis, session: SessionPayload) {
   await redis.set(sessionKey(session.sid), session, { ex: SESSION_TTL_SECONDS });
 }
 
 /**
- * ✅ Find “best” current subscription for this customer (for UI chips / quick state)
+ * Subscription Lookups
  */
 async function getBestSubForCustomer(stripe: Stripe, customerId: string) {
   const subs = await stripe.subscriptions.list({
@@ -238,15 +192,9 @@ async function getBestSubForCustomer(stripe: Stripe, customerId: string) {
   );
   if (trialing) return trialing;
 
-  const unpaid = subs.data.find((s) => s.status === "unpaid");
-  if (unpaid) return unpaid;
-
   return null;
 }
 
-/**
- * ✅ “Blocking” = should prevent creating another *paid* checkout session.
- */
 async function hasBlockingPaidSubscription(stripe: Stripe, customerId: string) {
   const subs = await stripe.subscriptions.list({
     customer: customerId,
@@ -263,8 +211,6 @@ async function hasBlockingPaidSubscription(stripe: Stripe, customerId: string) {
       const cpe = typeof (s as any)?.current_period_end === "number" ? (s as any).current_period_end : null;
       return typeof cpe === "number" && cpe > nowSec;
     }
-
-    // ✅ trialing is NOT blocking here
     return false;
   });
 }
@@ -281,7 +227,6 @@ export async function GET(req: Request) {
   const isDev = NODE_ENV === "development";
   const url = new URL(req.url);
 
-  // dev safety: avoid 127 cookie mismatch
   if (isDev && url.origin.includes("127.0.0.1")) {
     return NextResponse.redirect(`http://localhost:3000${url.pathname}${url.search}`);
   }
@@ -319,7 +264,6 @@ export async function GET(req: Request) {
     if (used) return NextResponse.redirect(`${origin}/?magic=error&reason=link_used`);
     await redis.set(nonceKey, "1", { ex: MAGIC_NONCE_TTL_SECONDS });
 
-    // ✅ Each device gets its own independent session id
     const sid = createSessionId();
 
     const baseSession: SessionPayload = {
@@ -334,29 +278,22 @@ export async function GET(req: Request) {
       return NextResponse.redirect(`${origin}/?magic=error&reason=invalid_payload`);
     }
 
-    // ✅ Determine pricing by country (used for trial creation + subscribe checkout)
     const country = getRequestCountry(req);
     const { priceId, currency } = pickMonthlyPriceIdForCountry(country);
 
     /**
      * ✅ INTENT: LOGIN
-     * - Set Redis session + cookies
-     * - If currently trialing, set emn_trial_ends cookie so UI shows trial chip again
      */
     if (intent === "login") {
       let session: SessionPayload = { ...baseSession };
-
       try {
         const best = await getBestSubForCustomer(stripe, baseSession.stripeCustomerId);
         if (best && best.status === "trialing" && typeof best.trial_end === "number") {
           session = { ...session, trialEndsAt: best.trial_end, trialSubscriptionId: best.id };
         }
-      } catch {
-        // ignore
-      }
+      } catch {}
 
       const res = NextResponse.redirect(`${origin}/?magic=success&intent=login`);
-
       await writeSession(redis, session);
       setSessionIdCookie(res, session.sid, isDev, cookieDomain);
 
@@ -372,70 +309,44 @@ export async function GET(req: Request) {
           ...(cookieDomain ? { domain: cookieDomain } : {}),
         });
       }
-
       return res;
     }
 
     /**
      * ✅ INTENT: TRIAL
-     * - Create trial subscription only if eligible
      */
     if (intent === "trial") {
-      const customer = (await stripe.customers.retrieve(baseSession.stripeCustomerId)) as
-        | Stripe.Customer
-        | Stripe.DeletedCustomer;
+      const customer = (await stripe.customers.retrieve(baseSession.stripeCustomerId)) as Stripe.Customer;
 
       if ((customer as any)?.deleted) {
         return NextResponse.redirect(`${origin}/?magic=error&reason=no_customer`);
       }
 
-      const md = ((customer as Stripe.Customer).metadata ?? {}) as Record<string, string | undefined>;
-
-      // If already subscribed (paid/owed) or trial used, do NOT create anything: just sign in.
+      const md = (customer.metadata ?? {}) as Record<string, string | undefined>;
       const blockingPaid = await hasBlockingPaidSubscription(stripe, baseSession.stripeCustomerId);
+      
       if (blockingPaid || md.emn_trial_used === "1") {
         const res = NextResponse.redirect(`${origin}/?magic=ok&intent=subscribe_required`);
         await writeSession(redis, baseSession);
         setSessionIdCookie(res, baseSession.sid, isDev, cookieDomain);
-
-        // Clear trial cookie
-        res.cookies.set({
-          name: "emn_trial_ends",
-          value: "",
-          httpOnly: false,
-          secure: !isDev,
-          sameSite: "lax",
-          path: "/",
-          maxAge: 0,
-          ...(cookieDomain ? { domain: cookieDomain } : {}),
-        });
-
         return res;
       }
 
-      const sub = await stripe.subscriptions.create(
-        {
-          customer: baseSession.stripeCustomerId,
-          items: [{ price: priceId, quantity: 1 }],
-          trial_period_days: TRIAL_DAYS,
-          cancel_at_period_end: true,
-          metadata: {
-            product: "explain_my_numbers",
-            created_by: "verify_magic_link_trial",
-            email: baseSession.email,
-            pricing_country: country,
-            pricing_currency: currency,
-            pricing_price_id: priceId,
-          },
+      const sub = await stripe.subscriptions.create({
+        customer: baseSession.stripeCustomerId,
+        items: [{ price: priceId, quantity: 1 }],
+        trial_period_days: TRIAL_DAYS,
+        cancel_at_period_end: true,
+        metadata: {
+          product: "explain_my_numbers",
+          created_by: "verify_magic_link_trial",
+          email: baseSession.email,
         },
-        { idempotencyKey: `sub_${payload.nonce}` }
-      );
+      }, { idempotencyKey: `sub_${payload.nonce}` });
 
-      await stripe.customers.update(
-        baseSession.stripeCustomerId,
-        { metadata: { ...md, emn_trial_used: "1", emn_trial_used_at: String(nowSec) } },
-        { idempotencyKey: `cust_${payload.nonce}` }
-      );
+      await stripe.customers.update(baseSession.stripeCustomerId, {
+        metadata: { ...md, emn_trial_used: "1", emn_trial_used_at: String(nowSec) }
+      }, { idempotencyKey: `cust_${payload.nonce}` });
 
       const sessionWithTrial: SessionPayload = {
         ...baseSession,
@@ -444,7 +355,6 @@ export async function GET(req: Request) {
       };
 
       const res = NextResponse.redirect(`${origin}/?magic=success&intent=trial`);
-
       await writeSession(redis, sessionWithTrial);
       setSessionIdCookie(res, sessionWithTrial.sid, isDev, cookieDomain);
 
@@ -474,26 +384,11 @@ export async function GET(req: Request) {
       });
 
       const res = NextResponse.redirect(portal.url, { status: 303 });
-
       await writeSession(redis, baseSession);
       setSessionIdCookie(res, baseSession.sid, isDev, cookieDomain);
-
-      // Clear trial cookie
-      res.cookies.set({
-        name: "emn_trial_ends",
-        value: "",
-        httpOnly: false,
-        secure: !isDev,
-        sameSite: "lax",
-        path: "/",
-        maxAge: 0,
-        ...(cookieDomain ? { domain: cookieDomain } : {}),
-      });
-
       return res;
     }
 
-    // Otherwise proceed to Checkout (even if they are currently trialing)
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: baseSession.stripeCustomerId,
@@ -505,25 +400,20 @@ export async function GET(req: Request) {
         product: "explain_my_numbers",
         created_by: "verify_magic_link_subscribe",
         email: baseSession.email,
-        pricing_country: country,
-        pricing_currency: currency,
-        pricing_price_id: priceId,
       },
     });
 
     const res = NextResponse.redirect(checkout.url!, { status: 303 });
-
     await writeSession(redis, baseSession);
     setSessionIdCookie(res, baseSession.sid, isDev, cookieDomain);
-
     return res;
+
   } catch (e) {
     console.error("VERIFY_ERROR:", e);
     return NextResponse.redirect(`${origin}/?magic=error&reason=server`);
   }
 }
 
-// ✅ Only set emn_sid cookie now (shared domain if configured)
 function setSessionIdCookie(res: NextResponse, sid: string, devMode: boolean, cookieDomain?: string) {
   res.cookies.set({
     name: SESSION_ID_COOKIE_NAME,
@@ -536,7 +426,6 @@ function setSessionIdCookie(res: NextResponse, sid: string, devMode: boolean, co
     ...(cookieDomain ? { domain: cookieDomain } : {}),
   });
 
-  // ✅ Optional safety: clear the old cookie if it exists
   res.cookies.set({
     name: SESSION_COOKIE_NAME,
     value: "",

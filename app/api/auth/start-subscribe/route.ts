@@ -51,17 +51,11 @@ function getClientIp(req: Request) {
     const first = xf.split(",")[0]?.trim();
     if (first) return first;
   }
-
   const xr = req.headers.get("x-real-ip");
   if (xr) return xr.trim();
-
   const cf = req.headers.get("cf-connecting-ip")?.trim();
   if (cf) return cf;
 
-  const vercel = req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim();
-  if (vercel) return vercel;
-
-  // Fallback: stable per-client-ish bucket (avoid collapsing everyone into 127.0.0.1)
   const ua = (req.headers.get("user-agent") ?? "").slice(0, 300);
   const al = (req.headers.get("accept-language") ?? "").slice(0, 200);
   const key = createHash("sha256").update(`${ua}|${al}`).digest("hex").slice(0, 16);
@@ -70,21 +64,18 @@ function getClientIp(req: Request) {
 }
 
 function hashEmailKey(email: string) {
-  // non-reversible, stable, short key for Redis
   return createHash("sha256").update(email).digest("hex").slice(0, 24);
 }
 
 async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
   const res = await ratelimit.limit(identifier);
   if (res.success) return { ok: true as const };
-
   const retryAfterSec = Math.max(1, Math.ceil((res.reset - Date.now()) / 1000));
   return { ok: false as const, retryAfterSec };
 }
 
 /**
  * ✅ Stripe Customer lookup (cross-device safe)
- * - If Redis is missing/stale, we search Stripe by email before creating a new customer.
  */
 async function findCustomerByEmail(stripe: Stripe, email: string): Promise<Stripe.Customer | null> {
   try {
@@ -92,19 +83,39 @@ async function findCustomerByEmail(stripe: Stripe, email: string): Promise<Strip
       query: `email:"${email}"`,
       limit: 1,
     });
-    return res.data[0] ?? null;
+    return (res.data[0] as Stripe.Customer) ?? null;
   } catch {
     return null;
   }
 }
 
 /**
- * ✅ Treat these as “already subscribed / should not create a second subscription”
- * IMPORTANT CHANGE:
- * - ✅ "trialing" is NOT blocking here (trial users should be able to subscribe/upgrade)
- * - active
- * - past_due (still within period)
- * - unpaid (Stripe may still consider it open/owed)
+ * ✅ Forced Canonical Origin for Localhost
+ */
+function getCanonicalOriginForEmail(req: Request, appOrigins: string) {
+  const firstOrigin =
+    (appOrigins || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)[0] || "";
+
+  if (firstOrigin.includes("localhost:3000")) {
+    return "http://localhost:3000";
+  }
+
+  if (firstOrigin) {
+    return firstOrigin.replace(/\/$/, "");
+  }
+
+  const xfProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "https";
+  const xfHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const host = xfHost || req.headers.get("host")?.trim() || "";
+
+  return `${xfProto}://${host}`.replace(/\/$/, "");
+}
+
+/**
+ * ✅ Blocking Subscription check
  */
 async function hasBlockingSubscription(stripe: Stripe, customerId: string) {
   const subs = await stripe.subscriptions.list({
@@ -116,69 +127,53 @@ async function hasBlockingSubscription(stripe: Stripe, customerId: string) {
   const nowSec = Math.floor(Date.now() / 1000);
 
   return subs.data.some((s) => {
-    // ✅ HARD BLOCK only on paid/owed states
     if (s.status === "active" || s.status === "unpaid") return true;
 
-    // "past_due" can still be within current period (still effectively active)
     if (s.status === "past_due") {
       const cpe = typeof (s as any)?.current_period_end === "number" ? (s as any).current_period_end : null;
       return typeof cpe === "number" && cpe > nowSec;
     }
 
-    // ✅ Do NOT block trialing here
+    // ✅ trialing is NOT blocking; they can proceed to Checkout
     return false;
   });
 }
 
 export async function POST(req: Request) {
   try {
-    const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-    const APP_ORIGINS = process.env.APP_ORIGINS;
-    const MAGIC_LINK_SECRET = process.env.MAGIC_LINK_SECRET;
-    const RESEND_API_KEY = process.env.RESEND_API_KEY;
-    const EMAIL_FROM = process.env.EMAIL_FROM;
+    const { 
+      STRIPE_SECRET_KEY, 
+      APP_ORIGINS, 
+      MAGIC_LINK_SECRET, 
+      RESEND_API_KEY, 
+      EMAIL_FROM 
+    } = process.env;
 
-    if (!STRIPE_SECRET_KEY) {
-      return NextResponse.json({ ok: false, error: "Missing STRIPE_SECRET_KEY." }, { status: 500 });
-    }
-    if (!APP_ORIGINS) {
-      return NextResponse.json({ ok: false, error: "Missing APP_ORIGINS." }, { status: 500 });
-    }
-    if (!MAGIC_LINK_SECRET) {
-      return NextResponse.json({ ok: false, error: "Missing MAGIC_LINK_SECRET." }, { status: 500 });
-    }
-    if (!RESEND_API_KEY || !EMAIL_FROM) {
-      return NextResponse.json({ ok: false, error: "Missing email configuration." }, { status: 500 });
+    if (!STRIPE_SECRET_KEY || !APP_ORIGINS || !MAGIC_LINK_SECRET || !RESEND_API_KEY || !EMAIL_FROM) {
+      return NextResponse.json({ ok: false, error: "Missing server configuration." }, { status: 500 });
     }
 
     const stripe = new Stripe(STRIPE_SECRET_KEY);
     const redis = Redis.fromEnv();
 
-    // --------------------------
-    // ✅ Rate limiting (anti-bot / anti-email-bombing)
-    // --------------------------
+    // Rate limiting
     const ip = getClientIp(req);
-
     const ipRatelimit = new Ratelimit({
       redis,
-      limiter: Ratelimit.slidingWindow(10, "10 m"), // 10 requests / 10 minutes per IP
-      analytics: false,
+      limiter: Ratelimit.slidingWindow(10, "10 m"),
       prefix: "emn:auth:subscribe:ip",
     });
-
     const emailRatelimit = new Ratelimit({
       redis,
-      limiter: Ratelimit.slidingWindow(3, "30 m"), // 3 requests / 30 minutes per email
-      analytics: false,
+      limiter: Ratelimit.slidingWindow(3, "30 m"),
       prefix: "emn:auth:subscribe:email",
     });
 
     const rlIp = await applyRateLimit(ipRatelimit, `ip:${ip}`);
     if (!rlIp.ok) {
-      const retry = rlIp.retryAfterSec ?? 600;
       return NextResponse.json(
         { ok: false, error: "Too many requests. Please try again soon.", error_code: "RATE_LIMITED" },
-        { status: 429, headers: { "Retry-After": String(retry) } }
+        { status: 429 }
       );
     }
 
@@ -194,56 +189,39 @@ export async function POST(req: Request) {
 
     const rlEmail = await applyRateLimit(emailRatelimit, `email:${hashEmailKey(rawEmail)}`);
     if (!rlEmail.ok) {
-      const retry = rlEmail.retryAfterSec ?? 1800;
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Too many requests for this email. Please try again later.",
-          error_code: "RATE_LIMITED",
-        },
-        { status: 429, headers: { "Retry-After": String(retry) } }
+        { ok: false, error: "Too many requests for this email. Please try again later.", error_code: "RATE_LIMITED" },
+        { status: 429 }
       );
     }
 
-    // 1) Find or create Stripe Customer (Redis-first, Stripe-email-search fallback)
+    // 1) Find or create Stripe Customer
     let customerId = await redis.get<string>(customerKey(rawEmail));
     let customer: Stripe.Customer | null = null;
 
-    // A) Try Redis -> retrieve customer
     if (customerId) {
       try {
-        const got = (await stripe.customers.retrieve(customerId)) as Stripe.Customer | Stripe.DeletedCustomer;
-        customer = (got as any)?.deleted ? null : (got as Stripe.Customer);
-      } catch {
-        customer = null;
-      }
+        const got = await stripe.customers.retrieve(customerId);
+        if (!(got as any).deleted) customer = got as Stripe.Customer;
+      } catch { customer = null; }
     }
 
-    // B) If Redis miss/stale, search Stripe by email (cross-device safe)
     if (!customer) {
       customer = await findCustomerByEmail(stripe, rawEmail);
-
-      // If found in Stripe, refresh Redis to the canonical customer id
-      if (customer?.id) {
+      if (customer) {
         await redis.set(customerKey(rawEmail), customer.id, { ex: 60 * 60 * 24 * 365 });
       }
     }
 
-    // C) Still nothing? Create new customer
     if (!customer) {
       customer = await stripe.customers.create({
         email: rawEmail,
-        metadata: {
-          product: "explain_my_numbers",
-          created_by: "start_subscribe",
-        },
+        metadata: { product: "explain_my_numbers", created_by: "start_subscribe" },
       });
-
       await redis.set(customerKey(rawEmail), customer.id, { ex: 60 * 60 * 24 * 365 });
     }
 
-    // 2) Decide intent: subscribe vs login (already subscribed)
-    // ✅ Trialing is NOT blocking here, so trial users will get "subscribe"
+    // 2) Decide intent
     const alreadySubscribed = await hasBlockingSubscription(stripe, customer.id);
     const intent: "subscribe" | "login" = alreadySubscribed ? "login" : "subscribe";
 
@@ -253,27 +231,18 @@ export async function POST(req: Request) {
     const expSec = nowSec + MAGIC_LINK_TTL_SECONDS;
 
     const token = signToken(
-      {
-        v: 1,
-        typ: "magic_link",
-        intent, // ✅ "subscribe" OR "login"
-        email: rawEmail,
-        stripeCustomerId: customer.id,
-        iat: nowSec,
-        exp: expSec,
-        nonce,
-      },
+      { v: 1, typ: "magic_link", intent, email: rawEmail, stripeCustomerId: customer.id, iat: nowSec, exp: expSec, nonce },
       MAGIC_LINK_SECRET
     );
 
-    const verifyUrl = `${APP_ORIGINS.split(",")[0].trim()}/api/auth/verify-magic-link?token=${encodeURIComponent(
-      token
-    )}`;
+    const origin = getCanonicalOriginForEmail(req, APP_ORIGINS);
+    const verifyUrl = `${origin}/api/auth/verify-magic-link?token=${encodeURIComponent(token)}`;
 
+    // 4) Email the link
     await sendMagicLinkEmail({
       to: rawEmail,
       verifyUrl,
-      mode: intent, // ✅ "subscribe" | "login"
+      mode: intent,
     });
 
     return NextResponse.json({
