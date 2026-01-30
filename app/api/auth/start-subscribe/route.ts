@@ -83,6 +83,22 @@ async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
 }
 
 /**
+ * ✅ Stripe Customer lookup (cross-device safe)
+ * - If Redis is missing/stale, we search Stripe by email before creating a new customer.
+ */
+async function findCustomerByEmail(stripe: Stripe, email: string): Promise<Stripe.Customer | null> {
+  try {
+    const res = await stripe.customers.search({
+      query: `email:"${email}"`,
+      limit: 1,
+    });
+    return res.data[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * ✅ Treat these as “already subscribed / should not create a second subscription”
  * IMPORTANT CHANGE:
  * - ✅ "trialing" is NOT blocking here (trial users should be able to subscribe/upgrade)
@@ -189,10 +205,11 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1) Find or create Stripe Customer
+    // 1) Find or create Stripe Customer (Redis-first, Stripe-email-search fallback)
     let customerId = await redis.get<string>(customerKey(rawEmail));
     let customer: Stripe.Customer | null = null;
 
+    // A) Try Redis -> retrieve customer
     if (customerId) {
       try {
         const got = (await stripe.customers.retrieve(customerId)) as Stripe.Customer | Stripe.DeletedCustomer;
@@ -202,6 +219,17 @@ export async function POST(req: Request) {
       }
     }
 
+    // B) If Redis miss/stale, search Stripe by email (cross-device safe)
+    if (!customer) {
+      customer = await findCustomerByEmail(stripe, rawEmail);
+
+      // If found in Stripe, refresh Redis to the canonical customer id
+      if (customer?.id) {
+        await redis.set(customerKey(rawEmail), customer.id, { ex: 60 * 60 * 24 * 365 });
+      }
+    }
+
+    // C) Still nothing? Create new customer
     if (!customer) {
       customer = await stripe.customers.create({
         email: rawEmail,

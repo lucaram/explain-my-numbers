@@ -63,12 +63,57 @@ function getCanonicalOrigin(req: Request, fallbackOrigins: string) {
 
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
   const proto = req.headers.get("x-forwarded-proto") || "https";
-  if (host.includes("localhost")) return "http://localhost:3000";
+  if (String(host).includes("localhost")) return "http://localhost:3000";
   return `${proto}://${host}`.replace(/\/$/, "");
 }
 
+/**
+ * ✅ CRITICAL FIX:
+ * If your app is reachable on BOTH:
+ *   https://explainmynumbers.app  AND  https://www.explainmynumbers.app
+ * then cookies set on one host are NOT visible on the other unless we set a shared cookie domain.
+ *
+ * This extracts the registrable domain from APP_ORIGINS and returns ".explainmynumbers.app"
+ * so cookies work across apex + www.
+ *
+ * On localhost we return undefined (do not set cookie domain in dev).
+ */
+function getCookieDomainFromAppOrigins(appOrigins: string | undefined) {
+  const isDev = process.env.NODE_ENV === "development";
+  if (isDev) return undefined;
+
+  const first =
+    (appOrigins || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)[0] || "";
+
+  try {
+    const u = new URL(first);
+    const host = u.hostname.toLowerCase();
+
+    // If someone configured www.explainmynumbers.app or explainmynumbers.app,
+    // we want ".explainmynumbers.app" so both work.
+    if (host === "localhost" || host.endsWith(".localhost")) return undefined;
+
+    const parts = host.split(".");
+    if (parts.length < 2) return undefined;
+
+    // For "www.explainmynumbers.app" => "explainmynumbers.app"
+    // For "explainmynumbers.app" => "explainmynumbers.app"
+    const base =
+      host.startsWith("www.") ? host.slice(4) : host;
+
+    return `.${base}`;
+  } catch {
+    return undefined;
+  }
+}
+
 function getClientIp(req: Request) {
-  return req.headers.get("x-forwarded-for")?.split(",")[0] || "unknown";
+  const xf = req.headers.get("x-forwarded-for");
+  if (xf) return xf.split(",")[0]?.trim() || "unknown";
+  return "unknown";
 }
 
 /**
@@ -201,17 +246,6 @@ async function getBestSubForCustomer(stripe: Stripe, customerId: string) {
 
 /**
  * ✅ “Blocking” = should prevent creating another *paid* checkout session.
- *
- * IMPORTANT CHANGE (fixes your issue):
- * - ✅ DO NOT treat "trialing" as blocking for SUBSCRIBE intent.
- *   If someone is trialing and clicks Subscribe, we should send them to Checkout,
- *   not to Billing Portal / "already subscribed".
- *
- * We still treat:
- * - active
- * - unpaid
- * - past_due (within period)
- * as blocking.
  */
 async function hasBlockingPaidSubscription(stripe: Stripe, customerId: string) {
   const subs = await stripe.subscriptions.list({
@@ -243,6 +277,7 @@ export async function GET(req: Request) {
   const { MAGIC_LINK_SECRET, STRIPE_SECRET_KEY, APP_ORIGINS, NODE_ENV } = process.env;
 
   const origin = getCanonicalOrigin(req, APP_ORIGINS || "");
+  const cookieDomain = getCookieDomainFromAppOrigins(APP_ORIGINS);
   const isDev = NODE_ENV === "development";
   const url = new URL(req.url);
 
@@ -323,7 +358,7 @@ export async function GET(req: Request) {
       const res = NextResponse.redirect(`${origin}/?magic=success&intent=login`);
 
       await writeSession(redis, session);
-      setSessionIdCookie(res, session.sid, isDev);
+      setSessionIdCookie(res, session.sid, isDev, cookieDomain);
 
       if (typeof session.trialEndsAt === "number") {
         res.cookies.set({
@@ -334,6 +369,7 @@ export async function GET(req: Request) {
           sameSite: "lax",
           path: "/",
           maxAge: SESSION_TTL_SECONDS,
+          ...(cookieDomain ? { domain: cookieDomain } : {}),
         });
       }
 
@@ -356,14 +392,13 @@ export async function GET(req: Request) {
       const md = ((customer as Stripe.Customer).metadata ?? {}) as Record<string, string | undefined>;
 
       // If already subscribed (paid/owed) or trial used, do NOT create anything: just sign in.
-      // ✅ NOTE: We do NOT treat trialing as "already subscribed" here either.
       const blockingPaid = await hasBlockingPaidSubscription(stripe, baseSession.stripeCustomerId);
       if (blockingPaid || md.emn_trial_used === "1") {
         const res = NextResponse.redirect(`${origin}/?magic=ok&intent=subscribe_required`);
         await writeSession(redis, baseSession);
-        setSessionIdCookie(res, baseSession.sid, isDev);
+        setSessionIdCookie(res, baseSession.sid, isDev, cookieDomain);
 
-        // ✅ ensure any stale trial cookie is cleared (helps after cookie resets / weird UI states)
+        // Clear trial cookie
         res.cookies.set({
           name: "emn_trial_ends",
           value: "",
@@ -372,6 +407,7 @@ export async function GET(req: Request) {
           sameSite: "lax",
           path: "/",
           maxAge: 0,
+          ...(cookieDomain ? { domain: cookieDomain } : {}),
         });
 
         return res;
@@ -410,7 +446,7 @@ export async function GET(req: Request) {
       const res = NextResponse.redirect(`${origin}/?magic=success&intent=trial`);
 
       await writeSession(redis, sessionWithTrial);
-      setSessionIdCookie(res, sessionWithTrial.sid, isDev);
+      setSessionIdCookie(res, sessionWithTrial.sid, isDev, cookieDomain);
 
       res.cookies.set({
         name: "emn_trial_ends",
@@ -420,6 +456,7 @@ export async function GET(req: Request) {
         sameSite: "lax",
         path: "/",
         maxAge: SESSION_TTL_SECONDS,
+        ...(cookieDomain ? { domain: cookieDomain } : {}),
       });
 
       return res;
@@ -427,10 +464,6 @@ export async function GET(req: Request) {
 
     /**
      * ✅ INTENT: SUBSCRIBE
-     *
-     * FIX:
-     * - Only hard-block if there is a PAID/OWED subscription (active/unpaid/past_due-within-period).
-     * - If user is trialing, we allow them to proceed to Checkout.
      */
     const blockingPaid = await hasBlockingPaidSubscription(stripe, baseSession.stripeCustomerId);
 
@@ -443,9 +476,9 @@ export async function GET(req: Request) {
       const res = NextResponse.redirect(portal.url, { status: 303 });
 
       await writeSession(redis, baseSession);
-      setSessionIdCookie(res, baseSession.sid, isDev);
+      setSessionIdCookie(res, baseSession.sid, isDev, cookieDomain);
 
-      // (Optional) clear trial cookie; if they have paid sub, trial UI shouldn't show
+      // Clear trial cookie
       res.cookies.set({
         name: "emn_trial_ends",
         value: "",
@@ -454,6 +487,7 @@ export async function GET(req: Request) {
         sameSite: "lax",
         path: "/",
         maxAge: 0,
+        ...(cookieDomain ? { domain: cookieDomain } : {}),
       });
 
       return res;
@@ -480,10 +514,7 @@ export async function GET(req: Request) {
     const res = NextResponse.redirect(checkout.url!, { status: 303 });
 
     await writeSession(redis, baseSession);
-    setSessionIdCookie(res, baseSession.sid, isDev);
-
-    // ✅ Important: do NOT set emn_trial_ends here.
-    // If they were trialing, the UI will refresh entitlement via /api/billing/status anyway.
+    setSessionIdCookie(res, baseSession.sid, isDev, cookieDomain);
 
     return res;
   } catch (e) {
@@ -492,8 +523,8 @@ export async function GET(req: Request) {
   }
 }
 
-// ✅ Only set emn_sid cookie now
-function setSessionIdCookie(res: NextResponse, sid: string, devMode: boolean) {
+// ✅ Only set emn_sid cookie now (shared domain if configured)
+function setSessionIdCookie(res: NextResponse, sid: string, devMode: boolean, cookieDomain?: string) {
   res.cookies.set({
     name: SESSION_ID_COOKIE_NAME,
     value: sid,
@@ -502,6 +533,7 @@ function setSessionIdCookie(res: NextResponse, sid: string, devMode: boolean) {
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL_SECONDS,
+    ...(cookieDomain ? { domain: cookieDomain } : {}),
   });
 
   // ✅ Optional safety: clear the old cookie if it exists
@@ -513,5 +545,6 @@ function setSessionIdCookie(res: NextResponse, sid: string, devMode: boolean) {
     sameSite: "lax",
     path: "/",
     maxAge: 0,
+    ...(cookieDomain ? { domain: cookieDomain } : {}),
   });
 }

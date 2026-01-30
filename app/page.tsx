@@ -807,7 +807,7 @@ const UI_LABELS = {
   } as Record<string, string>,
 
   pasteHere: {
-  en: "Paste your data here…",
+  en: "Paste your data here (e.g. spreadsheet)…",
   it: "Incolla i tuoi dati qui…",
   fr: "Collez vos données ici…",
   es: "Pega tus datos aquí…",
