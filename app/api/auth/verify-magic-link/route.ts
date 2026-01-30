@@ -200,10 +200,20 @@ async function getBestSubForCustomer(stripe: Stripe, customerId: string) {
 }
 
 /**
- * ✅ “Active-ish” = should prevent creating another subscription
- * (This is what fixes your double-charge issue.)
+ * ✅ “Blocking” = should prevent creating another *paid* checkout session.
+ *
+ * IMPORTANT CHANGE (fixes your issue):
+ * - ✅ DO NOT treat "trialing" as blocking for SUBSCRIBE intent.
+ *   If someone is trialing and clicks Subscribe, we should send them to Checkout,
+ *   not to Billing Portal / "already subscribed".
+ *
+ * We still treat:
+ * - active
+ * - unpaid
+ * - past_due (within period)
+ * as blocking.
  */
-async function hasBlockingSubscription(stripe: Stripe, customerId: string) {
+async function hasBlockingPaidSubscription(stripe: Stripe, customerId: string) {
   const subs = await stripe.subscriptions.list({
     customer: customerId,
     status: "all",
@@ -213,11 +223,14 @@ async function hasBlockingSubscription(stripe: Stripe, customerId: string) {
   const nowSec = Math.floor(Date.now() / 1000);
 
   return subs.data.some((s) => {
-    if (s.status === "active" || s.status === "trialing" || s.status === "unpaid") return true;
+    if (s.status === "active" || s.status === "unpaid") return true;
+
     if (s.status === "past_due") {
       const cpe = typeof (s as any)?.current_period_end === "number" ? (s as any).current_period_end : null;
       return typeof cpe === "number" && cpe > nowSec;
     }
+
+    // ✅ trialing is NOT blocking here
     return false;
   });
 }
@@ -286,14 +299,14 @@ export async function GET(req: Request) {
       return NextResponse.redirect(`${origin}/?magic=error&reason=invalid_payload`);
     }
 
-    // ✅ Determine pricing by country (only needed for trial creation and subscribe checkout)
+    // ✅ Determine pricing by country (used for trial creation + subscribe checkout)
     const country = getRequestCountry(req);
     const { priceId, currency } = pickMonthlyPriceIdForCountry(country);
 
     /**
      * ✅ INTENT: LOGIN
      * - Set Redis session + cookies
-     * - Optionally set emn_trial_ends if currently trialing
+     * - If currently trialing, set emn_trial_ends cookie so UI shows trial chip again
      */
     if (intent === "login") {
       let session: SessionPayload = { ...baseSession };
@@ -342,12 +355,25 @@ export async function GET(req: Request) {
 
       const md = ((customer as Stripe.Customer).metadata ?? {}) as Record<string, string | undefined>;
 
-      // If already subscribed or trial used, do NOT create anything: just sign in.
-      const alreadyBlocking = await hasBlockingSubscription(stripe, baseSession.stripeCustomerId);
-      if (alreadyBlocking || md.emn_trial_used === "1") {
+      // If already subscribed (paid/owed) or trial used, do NOT create anything: just sign in.
+      // ✅ NOTE: We do NOT treat trialing as "already subscribed" here either.
+      const blockingPaid = await hasBlockingPaidSubscription(stripe, baseSession.stripeCustomerId);
+      if (blockingPaid || md.emn_trial_used === "1") {
         const res = NextResponse.redirect(`${origin}/?magic=ok&intent=subscribe_required`);
         await writeSession(redis, baseSession);
         setSessionIdCookie(res, baseSession.sid, isDev);
+
+        // ✅ ensure any stale trial cookie is cleared (helps after cookie resets / weird UI states)
+        res.cookies.set({
+          name: "emn_trial_ends",
+          value: "",
+          httpOnly: false,
+          secure: !isDev,
+          sameSite: "lax",
+          path: "/",
+          maxAge: 0,
+        });
+
         return res;
       }
 
@@ -401,12 +427,14 @@ export async function GET(req: Request) {
 
     /**
      * ✅ INTENT: SUBSCRIBE
-     * Hard-block duplicate subscriptions:
-     * - If already subscribed, redirect to Billing Portal (manage/cancel) instead of Checkout.
+     *
+     * FIX:
+     * - Only hard-block if there is a PAID/OWED subscription (active/unpaid/past_due-within-period).
+     * - If user is trialing, we allow them to proceed to Checkout.
      */
-    const alreadyBlocking = await hasBlockingSubscription(stripe, baseSession.stripeCustomerId);
+    const blockingPaid = await hasBlockingPaidSubscription(stripe, baseSession.stripeCustomerId);
 
-    if (alreadyBlocking) {
+    if (blockingPaid) {
       const portal = await stripe.billingPortal.sessions.create({
         customer: baseSession.stripeCustomerId,
         return_url: `${origin}/?portal=return`,
@@ -417,10 +445,21 @@ export async function GET(req: Request) {
       await writeSession(redis, baseSession);
       setSessionIdCookie(res, baseSession.sid, isDev);
 
+      // (Optional) clear trial cookie; if they have paid sub, trial UI shouldn't show
+      res.cookies.set({
+        name: "emn_trial_ends",
+        value: "",
+        httpOnly: false,
+        secure: !isDev,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 0,
+      });
+
       return res;
     }
 
-    // Otherwise proceed to Checkout
+    // Otherwise proceed to Checkout (even if they are currently trialing)
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: baseSession.stripeCustomerId,
@@ -442,6 +481,9 @@ export async function GET(req: Request) {
 
     await writeSession(redis, baseSession);
     setSessionIdCookie(res, baseSession.sid, isDev);
+
+    // ✅ Important: do NOT set emn_trial_ends here.
+    // If they were trialing, the UI will refresh entitlement via /api/billing/status anyway.
 
     return res;
   } catch (e) {

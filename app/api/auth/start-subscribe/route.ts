@@ -84,7 +84,9 @@ async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
 
 /**
  * ✅ Treat these as “already subscribed / should not create a second subscription”
- * - active, trialing
+ * IMPORTANT CHANGE:
+ * - ✅ "trialing" is NOT blocking here (trial users should be able to subscribe/upgrade)
+ * - active
  * - past_due (still within period)
  * - unpaid (Stripe may still consider it open/owed)
  */
@@ -98,7 +100,8 @@ async function hasBlockingSubscription(stripe: Stripe, customerId: string) {
   const nowSec = Math.floor(Date.now() / 1000);
 
   return subs.data.some((s) => {
-    if (s.status === "active" || s.status === "trialing" || s.status === "unpaid") return true;
+    // ✅ HARD BLOCK only on paid/owed states
+    if (s.status === "active" || s.status === "unpaid") return true;
 
     // "past_due" can still be within current period (still effectively active)
     if (s.status === "past_due") {
@@ -106,6 +109,7 @@ async function hasBlockingSubscription(stripe: Stripe, customerId: string) {
       return typeof cpe === "number" && cpe > nowSec;
     }
 
+    // ✅ Do NOT block trialing here
     return false;
   });
 }
@@ -211,6 +215,7 @@ export async function POST(req: Request) {
     }
 
     // 2) Decide intent: subscribe vs login (already subscribed)
+    // ✅ Trialing is NOT blocking here, so trial users will get "subscribe"
     const alreadySubscribed = await hasBlockingSubscription(stripe, customer.id);
     const intent: "subscribe" | "login" = alreadySubscribed ? "login" : "subscribe";
 

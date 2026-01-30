@@ -1756,6 +1756,15 @@ useEffect(() => {
   const charCount = text.length;
   const overLimit = charCount > MAX_INPUT_CHARS;
 const showInputUi = !paywall || paywall.reason === "demo";
+const canShowTrialCta =
+  billing?.reason === "trial_active" ||
+  billing?.reason === "missing_session" ||
+  billing?.reason === "invalid_session" ||
+  billing?.reason === "no_customer" ||
+  paywall?.reason === "missing_session" ||
+  paywall?.reason === "invalid_session" ||
+  paywall?.reason === "no_customer";
+
   const hasText = useMemo(() => text.trim().length > 0, [text]);
   const hasFile = !!selectedFile;
   const hasResult = !!result;
@@ -3146,10 +3155,8 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                {/* Actions */}
               <div className="pt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
                 {/* ✅ Trial button ONLY when eligible/active */}
-  {(billing?.reason === "trial_active" ||
-  billing?.reason === "missing_session" ||
-  billing?.reason === "invalid_session" ||
-  billing?.reason === "no_customer") && (           
+{canShowTrialCta && (
+        
        <button
                     type="button"
                     onClick={() => {
@@ -3739,10 +3746,8 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                {/* Actions */}
               <div className="pt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
                 {/* ✅ Trial button ONLY when eligible/active */}
-  {(billing?.reason === "trial_active" ||
-  billing?.reason === "missing_session" ||
-  billing?.reason === "invalid_session" ||
-  billing?.reason === "no_customer") && (           
+{canShowTrialCta && (
+         
        <button
                     type="button"
                     onClick={() => {
@@ -4226,10 +4231,8 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
               {/* Actions */}
 <div className="pt-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
   {/* ✅ Trial button ONLY when eligible/active */}
-  {(billing?.reason === "trial_active" ||
-    billing?.reason === "missing_session" ||
-    billing?.reason === "invalid_session" ||
-    billing?.reason === "no_customer") && (
+{canShowTrialCta && (
+
     <button
       type="button"
       onClick={() => {
