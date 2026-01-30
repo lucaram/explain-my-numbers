@@ -2291,10 +2291,10 @@ useEffect(() => {
       return;
     }
 
- const endpoint =
-  magicIntent === "subscribe"
-    ? "/api/auth/start-subscribe"
-    : "/api/auth/start-trial";
+    const endpoint =
+      magicIntent === "trial"
+        ? "/api/auth/start-trial"
+        : "/api/auth/start-subscribe";
 
     const r = await fetch(endpoint, {
       method: "POST",
@@ -2303,8 +2303,6 @@ useEffect(() => {
     });
 
     const body = await r.json().catch(() => null);
-    console.log("[magiclink]", { magicIntent, endpoint, mode: body?.mode, ok: body?.ok });
-
 
     // 🟡 Graceful handling of known backend responses
     if (!r.ok || !body?.ok) {
@@ -2312,15 +2310,18 @@ useEffect(() => {
       return;
     }
 
-    // ✅ Success UX
-// ✅ Success UX (trial vs login awareness)
+   
+// ✅ Success UX 
 setMagicNote(
   magicIntent === "trial"
     ? (body?.mode === "login"
         ? "Magic link sent — this will log you into your existing trial."
         : t(uiLang, "MAGIC_LINK_TRIAL_SENT"))
-    : t(uiLang, "MAGIC_LINK_SUBSCRIBE_SENT")
+    : (body?.mode === "login"
+        ? "Already subscribed — we emailed you a sign-in link. Use Manage to edit billing."
+        : t(uiLang, "MAGIC_LINK_SUBSCRIBE_SENT"))
 );
+
 
   } catch (err) {
     // 🔴 Only truly unexpected errors land here
@@ -2640,110 +2641,113 @@ const showDemoButton =
       </div>
 
       <nav className="sticky top-0 z-[60] backdrop-blur-2xl">
-  <div className="max-w-7xl mx-auto px-4 md:px-8 h-12 md:h-14 flex items-center justify-between">
-    <div className="flex items-center gap-2.5 select-none">
-      {/* Desktop-only icon container */}
-      <div
-        className={cn(
-          "hidden sm:grid h-8 w-8 rounded-2xl place-items-center",
-          theme === "dark"
-            ? "bg-white/[0.05] border border-white/10"
-            : "bg-white/80 border border-zinc-200 shadow-[0_10px_30px_rgba(0,0,0,0.06)]"
-        )}
-        aria-hidden="true"
-      >
-        <BarChart3
-          size={16}
+     <div className="max-w-7xl mx-auto px-4 md:px-8 h-12 md:h-14 flex items-center justify-between">
+
+      {/* ✅ LEFT: Desktop-only brand row + Demo button (kept exactly as-is otherwise) */}
+      <div className="flex items-center gap-2.5 select-none">
+
+      {/* ✅ Desktop-only: [icon] Explain My Numbers 2.0 [arrow] */}
+      <div className="hidden sm:flex items-center gap-2.5 select-none">
+        {/* Desktop-only icon container */}
+        <div
           className={cn(
-            theme === "dark" ? "text-white/85" : "text-zinc-900"
+            "grid h-8 w-8 rounded-2xl place-items-center",
+            theme === "dark"
+              ? "bg-white/[0.05] border border-white/10"
+              : "bg-white/80 border border-zinc-200 shadow-[0_10px_30px_rgba(0,0,0,0.06)]"
           )}
-        />
+          aria-hidden="true"
+        >
+          <BarChart3
+            size={16}
+            className={cn(theme === "dark" ? "text-white/85" : "text-zinc-900")}
+          />
+        </div>
+
+        <span className="font-black tracking-[-0.03em] text-[14px] md:text-[15px]">
+          Explain My Numbers{" "}
+          <span className="font-semibold opacity-55 tracking-[0.02em] text-[12px] md:text-[13px]">
+            2.0
+          </span>
+        </span>
+
+        {/* Arrow */}
+        <span className="inline-flex items-center text-zinc-400/80 dark:text-zinc-700/80 transition-colors duration-700">
+          <ArrowRight className="w-[0.9em] h-[0.9em]" strokeWidth={2.25} />
+        </span>
       </div>
 
+      {/* Title + Demo button */}
+      <span className="inline-flex items-center gap-1.5">
+        {/* ✅ DEMO BUTTON */}
+        {showDemoButton && (
+          <span className="relative group">
+            <button
+              type="button"
+              onClick={() => {
+                if (!isDemo) setShowDemoTip((v) => !v); // tap shows tooltip on mobile
+                (isDemo ? exitDemo : startOfflineDemo)();
+              }}
+              className={cn(
+                "relative z-[90] pointer-events-auto",
+                "inline-flex items-center gap-1.5 sm:gap-2",
+                "px-2.5 py-1 sm:px-3.5 sm:py-1.5", // ✅ tighter on mobile
+                "rounded-full select-none",
 
-            <span className="font-black tracking-[-0.03em] text-[14px] md:text-[15px]">
-              Explain My Numbers{" "}
-              <span className="font-semibold opacity-55 tracking-[0.02em] text-[12px] md:text-[13px]">2.0</span>
-            </span>
-<span className="inline-flex items-center gap-2 md:gap-3">
-  {/* icon */}
+                // ✅ text sizing + tracking
+                "text-[10px] sm:text-[11px]",
+                "font-black uppercase",
+                "tracking-[0.18em] sm:tracking-[0.24em]",
 
+                "transition-all duration-300",
+                "active:scale-[0.94]",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
 
-  {/* Arrow */}
-  <span className="inline-flex items-center text-zinc-400/80 dark:text-zinc-700/80 transition-colors duration-700">
-    <ArrowRight className="w-[0.9em] h-[0.9em]" strokeWidth={2.25} />
-  </span>
+                isDemo
+                  ? theme === "dark"
+                    ? "bg-amber-400/10 text-amber-200 border border-amber-400/25 hover:bg-amber-400/18"
+                    : "bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100"
+                  : theme === "dark"
+                    ? "bg-indigo-400/10 text-indigo-200 border border-indigo-400/25 hover:bg-indigo-400/18"
+                    : "bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+              )}
+            >
+              {/* Desktop only icon */}
+              <FileText size={12} className="hidden sm:inline opacity-80" />
 
+              <span>{isDemo ? demoCopy.exitDemo : demoCopy.tryDemo}</span>
+            </button>
 
-{/* Title + Demo button */}
-<span className="inline-flex items-center gap-1.5">
-  {/* ✅ DEMO BUTTON */}
-  {showDemoButton && (
-    <span className="relative group">
-      <button
-  type="button"
-  onClick={() => {
-    if (!isDemo) setShowDemoTip((v) => !v); // tap shows tooltip on mobile
-    (isDemo ? exitDemo : startOfflineDemo)();
-  }}
-  className={cn(
-    "relative z-[90] pointer-events-auto",
-    "inline-flex items-center gap-1.5 sm:gap-2",
-    "px-2.5 py-1 sm:px-3.5 sm:py-1.5", // ✅ tighter on mobile
-    "rounded-full select-none",
-
-    // ✅ text sizing + tracking
-    "text-[10px] sm:text-[11px]",
-    "font-black uppercase",
-    "tracking-[0.18em] sm:tracking-[0.24em]",
-
-    "transition-all duration-300",
-    "active:scale-[0.94]",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-
-    isDemo
-      ? theme === "dark"
-        ? "bg-amber-400/10 text-amber-200 border border-amber-400/25 hover:bg-amber-400/18"
-        : "bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100"
-      : theme === "dark"
-        ? "bg-indigo-400/10 text-indigo-200 border border-indigo-400/25 hover:bg-indigo-400/18"
-        : "bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
-  )}
->
-  {/* Desktop only icon */}
-  <FileText size={12} className="hidden sm:inline opacity-80" />
-
-  <span>{isDemo ? demoCopy.exitDemo : demoCopy.tryDemo}</span>
-</button>
-
-
+            {/* ✨ Tooltip: hover on desktop, tap-toggle on mobile */}
 {/* ✨ Tooltip: hover on desktop, tap-toggle on mobile */}
 {!isDemo && (
   <div
     className={cn(
-      // positioning
-      "absolute left-1/2 top-full mt-1 -translate-x-1/2 z-[95]",
+      // ✅ Positioning: Fixed on mobile, absolute on desktop
+      "fixed sm:absolute z-[95]",
+      "left-3 sm:left-1/2 sm:right-auto", // Removed right-3 to let width be natural
+      "top-[38px] sm:top-full",
+      "mt-0 sm:mt-1",
+      "sm:-translate-x-1/2",
 
-      // interaction
+      // Interaction
       "pointer-events-none",
       "opacity-0 scale-[0.98] sm:scale-95",
       "group-hover:opacity-100 group-hover:scale-100",
       "sm:group-hover:pointer-events-auto",
       showDemoTip ? "opacity-100 scale-100 pointer-events-auto" : "",
 
-      // animation
+      // Animation
       "transition-[opacity,transform] duration-150 ease-out",
 
-      // sizing
-      "w-[min(200px,calc(100vw-56px))] sm:w-max",
-      "max-w-[min(200px,calc(100vw-56px))] sm:max-w-none",
-      "px-2 py-1 sm:px-3 sm:py-2",
+      // ✅ Sizing: w-fit ensures the box only spreads as wide as the text
+      "w-fit max-w-[calc(100vw-24px)]", // Prevents it from hitting screen edges
+      "px-3 py-1.5 sm:px-3 sm:py-2",
       "rounded-lg sm:rounded-xl",
 
-      // text
+      // Text
       "text-[10px] sm:text-[11px] leading-snug tracking-tight",
-      "whitespace-normal sm:whitespace-nowrap",
-      "break-words",
+      "whitespace-normal sm:whitespace-nowrap", // Desktop stays one line, mobile wraps if needed
       "text-left",
 
       theme === "dark"
@@ -2757,149 +2761,134 @@ const showDemoButton =
   </div>
 )}
 
+          </span>
+        )}
+      </span>
+    </div>
 
-    </span>
-  )}
-</span>
+    <div className="flex items-center gap-3">
+      {chip && (
+        <div className="flex items-center gap-2">
+          {/* CHIP */}
+          <div
+            className={cn(
+              "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 select-none",
+              "text-[11px] font-semibold tracking-[-0.01em] backdrop-blur-xl",
+              theme === "dark"
+                ? chip.tone === "trial"
+                  ? "bg-white/[0.04] border-white/10 text-white/85"
+                  : chip.tone === "good"
+                    ? "bg-white/[0.06] border-white/12 text-white/90"
+                    : "bg-white/[0.03] border-white/10 text-white/70"
+                : chip.tone === "trial"
+                  ? "bg-white border-zinc-200 text-zinc-800"
+                  : chip.tone === "good"
+                    ? "bg-white border-zinc-200 text-zinc-900"
+                    : "bg-white border-zinc-200 text-zinc-700"
+            )}
+            title={
+              chip.tone === "trial"
+                ? "Your trial is active"
+                : chip.tone === "ended"
+                  ? "Your trial has ended"
+                  : "Subscription active"
+            }
+          >
+            <span
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                chip.tone === "trial"
+                  ? theme === "dark"
+                    ? "bg-indigo-300/80"
+                    : "bg-indigo-600/70"
+                  : chip.tone === "good"
+                    ? theme === "dark"
+                      ? "bg-emerald-300/80"
+                      : "bg-emerald-600/70"
+                    : theme === "dark"
+                      ? "bg-white/35"
+                      : "bg-zinc-400"
+              )}
+              aria-hidden="true"
+            />
+            {/* Title always visible */}
+            <span className="font-bold">{chip.title}</span>
 
-</span>
+            {/* Desktop-only: dot + subtitle */}
+            <span
+              className={cn(theme === "dark" ? "text-white/55" : "text-zinc-500", "hidden sm:inline")}
+            >
+              ·
+            </span>
 
-
+            <span
+              className={cn(theme === "dark" ? "text-white/70" : "text-zinc-600", "hidden sm:inline")}
+            >
+              {chip.sub}
+            </span>
           </div>
 
- <div className="flex items-center gap-3">
-  {chip && (
-    <div className="flex items-center gap-2">
-      {/* CHIP */}
-      <div
-        className={cn(
-          "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 select-none",
-          "text-[11px] font-semibold tracking-[-0.01em] backdrop-blur-xl",
-          theme === "dark"
-            ? chip.tone === "trial"
-              ? "bg-white/[0.04] border-white/10 text-white/85"
-              : chip.tone === "good"
-                ? "bg-white/[0.06] border-white/12 text-white/90"
-                : "bg-white/[0.03] border-white/10 text-white/70"
-            : chip.tone === "trial"
-              ? "bg-white border-zinc-200 text-zinc-800"
-              : chip.tone === "good"
-                ? "bg-white border-zinc-200 text-zinc-900"
-                : "bg-white border-zinc-200 text-zinc-700"
-        )}
-        title={
-          chip.tone === "trial"
-            ? "Your trial is active"
-            : chip.tone === "ended"
-              ? "Your trial has ended"
-              : "Subscription active"
-        }
-      >
-        <span
-          className={cn(
-            "h-1.5 w-1.5 rounded-full",
-            chip.tone === "trial"
-              ? theme === "dark"
-                ? "bg-indigo-300/80"
-                : "bg-indigo-600/70"
-              : chip.tone === "good"
-                ? theme === "dark"
-                  ? "bg-emerald-300/80"
-                  : "bg-emerald-600/70"
-                : theme === "dark"
-                  ? "bg-white/35"
-                  : "bg-zinc-400"
-          )}
-          aria-hidden="true"
-        />
-{/* Title always visible */}
-<span className="font-bold">{chip.title}</span>
-
-{/* Desktop-only: dot + subtitle */}
-<span
-  className={cn(
-    theme === "dark" ? "text-white/55" : "text-zinc-500",
-    "hidden sm:inline"
-  )}
->
-  ·
-</span>
-
-<span
-  className={cn(
-    theme === "dark" ? "text-white/70" : "text-zinc-600",
-    "hidden sm:inline"
-  )}
->
-  {chip.sub}
-</span>
-
-      </div>
-
-    {/* CTA: Subscribe OR Manage */}
-{chip.cta === "subscribe" ? (
-  <button
-    type="button"
-    onClick={chip.tone === "ended" ? goSubscribeDirect : goSubscribe}
-    disabled={subLoading}
-    className={cn(
-      "relative z-[100] pointer-events-auto", // ensure clickable
-      "inline-flex items-center justify-center rounded-full px-3 py-1.5",
-      "text-[11px] font-semibold tracking-tight",
-      theme === "dark"
-        ? "bg-white/10 hover:bg-white/15 text-white border border-white/10"
-        : "bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-900/10",
-      "transition-transform hover:scale-[1.04] active:scale-[0.96]",
-      "disabled:opacity-60 disabled:cursor-not-allowed"
-    )}
-  >
-    {subLoading ? tUI(uiLang, "BTN_REDIRECTING") : tUI(uiLang, "BTN_SUBSCRIBE")}
-  </button>
-) : chip.cta === "manage" ? (
-  <button
-    type="button"
-    onClick={goManage}
-    disabled={portalLoading}
-    className={cn(
-      "relative z-[100] pointer-events-auto", // ensure clickable
-      "inline-flex items-center justify-center rounded-full px-3 py-1.5",
-      "text-[11px] font-semibold tracking-tight",
-      theme === "dark"
-        ? "bg-white/10 hover:bg-white/15 text-white border border-white/10"
-        : "bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-200",
-      "transition-transform hover:scale-[1.04] active:scale-[0.96]",
-      "disabled:opacity-60 disabled:cursor-not-allowed"
-    )}
-    title="Manage subscription"
-  >
-    {portalLoading ? tUI(uiLang, "BTN_OPENING") : tUI(uiLang, "BTN_MANAGE")}
-  </button>
-) : null}
-
-
-    </div>
-  )}
-
-  {/* EXISTING THEME TOGGLE */}
-  <button
-    type="button"
-    onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-    className={cn(
-      "p-2 rounded-full transition-all active:scale-[0.98]",
-      "hover:bg-zinc-200/60 dark:hover:bg-white/6",
-      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-      "shadow-[0_1px_0_rgba(255,255,255,0.18)] dark:shadow-[0_1px_0_rgba(255,255,255,0.06)]"
-    )}
-    title="Toggle theme"
-    aria-label="Toggle theme"
-  >
-    {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
-  </button>
-</div>
-
-
+          {/* CTA: Subscribe OR Manage */}
+          {chip.cta === "subscribe" ? (
+            <button
+              type="button"
+              onClick={chip.tone === "ended" ? goSubscribeDirect : goSubscribe}
+              disabled={subLoading}
+              className={cn(
+                "relative z-[100] pointer-events-auto", // ensure clickable
+                "inline-flex items-center justify-center rounded-full px-3 py-1.5",
+                "text-[11px] font-semibold tracking-tight",
+                theme === "dark"
+                  ? "bg-white/10 hover:bg-white/15 text-white border border-white/10"
+                  : "bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-900/10",
+                "transition-transform hover:scale-[1.04] active:scale-[0.96]",
+                "disabled:opacity-60 disabled:cursor-not-allowed"
+              )}
+            >
+              {subLoading ? tUI(uiLang, "BTN_REDIRECTING") : tUI(uiLang, "BTN_SUBSCRIBE")}
+            </button>
+          ) : chip.cta === "manage" ? (
+            <button
+              type="button"
+              onClick={goManage}
+              disabled={portalLoading}
+              className={cn(
+                "relative z-[100] pointer-events-auto", // ensure clickable
+                "inline-flex items-center justify-center rounded-full px-3 py-1.5",
+                "text-[11px] font-semibold tracking-tight",
+                theme === "dark"
+                  ? "bg-white/10 hover:bg-white/15 text-white border border-white/10"
+                  : "bg-white hover:bg-zinc-50 text-zinc-900 border border-zinc-200",
+                "transition-transform hover:scale-[1.04] active:scale-[0.96]",
+                "disabled:opacity-60 disabled:cursor-not-allowed"
+              )}
+              title="Manage subscription"
+            >
+              {portalLoading ? tUI(uiLang, "BTN_OPENING") : tUI(uiLang, "BTN_MANAGE")}
+            </button>
+          ) : null}
         </div>
-      </nav>
+      )}
+
+      {/* EXISTING THEME TOGGLE */}
+      <button
+        type="button"
+        onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+        className={cn(
+          "p-2 rounded-full transition-all active:scale-[0.98]",
+          "hover:bg-zinc-200/60 dark:hover:bg-white/6",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+          "shadow-[0_1px_0_rgba(255,255,255,0.18)] dark:shadow-[0_1px_0_rgba(255,255,255,0.06)]"
+        )}
+        title="Toggle theme"
+        aria-label="Toggle theme"
+      >
+        {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
+      </button>
+    </div>
+  </div>
+</nav>
+
 
       <main className="relative max-w-5xl mx-auto px-4 md:px-8 py-4 md:py-6 print:p-0">
         <header className="mb-4 md:mb-6 space-y-2 md:space-y-4 print:hidden">

@@ -149,8 +149,7 @@ type MagicIntent = "trial" | "login" | "subscribe";
 
 function normalizeIntent(x: any): MagicIntent {
   if (x === "trial" || x === "login" || x === "subscribe") return x;
-  // Back-compat: if older tokens used "subscribe" only, treat unknown as subscribe
-  return "subscribe";
+  return "subscribe"; // back-compat default
 }
 
 // ✅ Create a real random session id (don’t derive from nonce)
@@ -168,8 +167,7 @@ async function writeSession(redis: Redis, session: SessionPayload) {
 }
 
 /**
- * ✅ Lightweight helper: find the “best” current subscription for this customer
- * We only need enough to set trialEndsAt for UI chips on the new device.
+ * ✅ Find “best” current subscription for this customer (for UI chips / quick state)
  */
 async function getBestSubForCustomer(stripe: Stripe, customerId: string) {
   const subs = await stripe.subscriptions.list({
@@ -180,7 +178,6 @@ async function getBestSubForCustomer(stripe: Stripe, customerId: string) {
 
   const nowSec = Math.floor(Date.now() / 1000);
 
-  // Prefer: active, then past_due (still within period), then trialing
   const active = subs.data.find((s) => s.status === "active");
   if (active) return active;
 
@@ -196,7 +193,33 @@ async function getBestSubForCustomer(stripe: Stripe, customerId: string) {
   );
   if (trialing) return trialing;
 
+  const unpaid = subs.data.find((s) => s.status === "unpaid");
+  if (unpaid) return unpaid;
+
   return null;
+}
+
+/**
+ * ✅ “Active-ish” = should prevent creating another subscription
+ * (This is what fixes your double-charge issue.)
+ */
+async function hasBlockingSubscription(stripe: Stripe, customerId: string) {
+  const subs = await stripe.subscriptions.list({
+    customer: customerId,
+    status: "all",
+    limit: 20,
+  });
+
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  return subs.data.some((s) => {
+    if (s.status === "active" || s.status === "trialing" || s.status === "unpaid") return true;
+    if (s.status === "past_due") {
+      const cpe = typeof (s as any)?.current_period_end === "number" ? (s as any).current_period_end : null;
+      return typeof cpe === "number" && cpe > nowSec;
+    }
+    return false;
+  });
 }
 
 /** --------------------------
@@ -210,6 +233,7 @@ export async function GET(req: Request) {
   const isDev = NODE_ENV === "development";
   const url = new URL(req.url);
 
+  // dev safety: avoid 127 cookie mismatch
   if (isDev && url.origin.includes("127.0.0.1")) {
     return NextResponse.redirect(`http://localhost:3000${url.pathname}${url.search}`);
   }
@@ -268,9 +292,8 @@ export async function GET(req: Request) {
 
     /**
      * ✅ INTENT: LOGIN
-     * - Don’t create trial
-     * - Just set Redis session + cookies
-     * - Try to set emn_trial_ends from Stripe so chip shows immediately
+     * - Set Redis session + cookies
+     * - Optionally set emn_trial_ends if currently trialing
      */
     if (intent === "login") {
       let session: SessionPayload = { ...baseSession };
@@ -278,14 +301,10 @@ export async function GET(req: Request) {
       try {
         const best = await getBestSubForCustomer(stripe, baseSession.stripeCustomerId);
         if (best && best.status === "trialing" && typeof best.trial_end === "number") {
-          session = {
-            ...session,
-            trialEndsAt: best.trial_end,
-            trialSubscriptionId: best.id,
-          };
+          session = { ...session, trialEndsAt: best.trial_end, trialSubscriptionId: best.id };
         }
       } catch {
-        // ignore — entitlement API will still work via emn_sid + snapshot/Stripe
+        // ignore
       }
 
       const res = NextResponse.redirect(`${origin}/?magic=success&intent=login`);
@@ -322,19 +341,16 @@ export async function GET(req: Request) {
       }
 
       const md = ((customer as Stripe.Customer).metadata ?? {}) as Record<string, string | undefined>;
-      const subs = await stripe.subscriptions.list({ customer: baseSession.stripeCustomerId, limit: 1 });
 
-      // If already subscribed or trial used, treat as LOGIN (don’t block device)
-      if (subs.data.length > 0 || md.emn_trial_used === "1") {
+      // If already subscribed or trial used, do NOT create anything: just sign in.
+      const alreadyBlocking = await hasBlockingSubscription(stripe, baseSession.stripeCustomerId);
+      if (alreadyBlocking || md.emn_trial_used === "1") {
         const res = NextResponse.redirect(`${origin}/?magic=ok&intent=subscribe_required`);
-
         await writeSession(redis, baseSession);
         setSessionIdCookie(res, baseSession.sid, isDev);
-
         return res;
       }
 
-      // Create trial subscription
       const sub = await stripe.subscriptions.create(
         {
           customer: baseSession.stripeCustomerId,
@@ -355,9 +371,7 @@ export async function GET(req: Request) {
 
       await stripe.customers.update(
         baseSession.stripeCustomerId,
-        {
-          metadata: { ...md, emn_trial_used: "1", emn_trial_used_at: String(nowSec) },
-        },
+        { metadata: { ...md, emn_trial_used: "1", emn_trial_used_at: String(nowSec) } },
         { idempotencyKey: `cust_${payload.nonce}` }
       );
 
@@ -372,7 +386,6 @@ export async function GET(req: Request) {
       await writeSession(redis, sessionWithTrial);
       setSessionIdCookie(res, sessionWithTrial.sid, isDev);
 
-      // Secondary cookie for frontend countdowns
       res.cookies.set({
         name: "emn_trial_ends",
         value: String(sub.trial_end),
@@ -388,7 +401,26 @@ export async function GET(req: Request) {
 
     /**
      * ✅ INTENT: SUBSCRIBE
+     * Hard-block duplicate subscriptions:
+     * - If already subscribed, redirect to Billing Portal (manage/cancel) instead of Checkout.
      */
+    const alreadyBlocking = await hasBlockingSubscription(stripe, baseSession.stripeCustomerId);
+
+    if (alreadyBlocking) {
+      const portal = await stripe.billingPortal.sessions.create({
+        customer: baseSession.stripeCustomerId,
+        return_url: `${origin}/?portal=return`,
+      });
+
+      const res = NextResponse.redirect(portal.url, { status: 303 });
+
+      await writeSession(redis, baseSession);
+      setSessionIdCookie(res, baseSession.sid, isDev);
+
+      return res;
+    }
+
+    // Otherwise proceed to Checkout
     const checkout = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: baseSession.stripeCustomerId,

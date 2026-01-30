@@ -584,10 +584,10 @@ export async function sendMagicLinkEmail({ to, verifyUrl, mode, trialDays, lang 
 
  
 // ✅ Login email copy (EN only for now)
-const loginSubject = "Your magic link to continue your trial";
-const loginTitle = "Continue on this device";
-const loginSubtitle = "Click the button below to sign in and continue your existing free trial.";
-const loginButton = "Continue";
+const loginSubject = "Your magic link to sign in";
+const loginTitle = "Sign in on this device";
+const loginSubtitle = "Click the button below to sign in to your Explain My Numbers account.";
+const loginButton = "Sign in";
 
 const subject =
   (isLogin ? "[LOGIN] " : isTrial ? "[TRIAL] " : "[SUBSCRIBE] ") +

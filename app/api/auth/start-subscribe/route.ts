@@ -82,6 +82,34 @@ async function applyRateLimit(ratelimit: Ratelimit, identifier: string) {
   return { ok: false as const, retryAfterSec };
 }
 
+/**
+ * ✅ Treat these as “already subscribed / should not create a second subscription”
+ * - active, trialing
+ * - past_due (still within period)
+ * - unpaid (Stripe may still consider it open/owed)
+ */
+async function hasBlockingSubscription(stripe: Stripe, customerId: string) {
+  const subs = await stripe.subscriptions.list({
+    customer: customerId,
+    status: "all",
+    limit: 20,
+  });
+
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  return subs.data.some((s) => {
+    if (s.status === "active" || s.status === "trialing" || s.status === "unpaid") return true;
+
+    // "past_due" can still be within current period (still effectively active)
+    if (s.status === "past_due") {
+      const cpe = typeof (s as any)?.current_period_end === "number" ? (s as any).current_period_end : null;
+      return typeof cpe === "number" && cpe > nowSec;
+    }
+
+    return false;
+  });
+}
+
 export async function POST(req: Request) {
   try {
     const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
@@ -182,7 +210,11 @@ export async function POST(req: Request) {
       await redis.set(customerKey(rawEmail), customer.id, { ex: 60 * 60 * 24 * 365 });
     }
 
-    // 2) Create magic link token (subscribe redirects to Stripe Checkout on click)
+    // 2) Decide intent: subscribe vs login (already subscribed)
+    const alreadySubscribed = await hasBlockingSubscription(stripe, customer.id);
+    const intent: "subscribe" | "login" = alreadySubscribed ? "login" : "subscribe";
+
+    // 3) Create magic link token
     const nonce = base64url(randomBytes(16));
     const nowSec = Math.floor(Date.now() / 1000);
     const expSec = nowSec + MAGIC_LINK_TTL_SECONDS;
@@ -191,7 +223,7 @@ export async function POST(req: Request) {
       {
         v: 1,
         typ: "magic_link",
-        intent: "subscribe",
+        intent, // ✅ "subscribe" OR "login"
         email: rawEmail,
         stripeCustomerId: customer.id,
         iat: nowSec,
@@ -208,11 +240,13 @@ export async function POST(req: Request) {
     await sendMagicLinkEmail({
       to: rawEmail,
       verifyUrl,
-      mode: "subscribe",
+      mode: intent, // ✅ "subscribe" | "login"
     });
 
     return NextResponse.json({
       ok: true,
+      mode: intent,
+      alreadySubscribed,
       message: "Magic link sent.",
       email: maskEmail(rawEmail),
     });
