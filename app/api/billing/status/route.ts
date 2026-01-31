@@ -9,6 +9,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const SESSION_ID_COOKIE_NAME = process.env.SESSION_ID_COOKIE_NAME || "emn_sid";
+
 /** --------------------------
  * Helpers
  * -------------------------- */
@@ -43,17 +45,23 @@ function applyNoStoreHeaders(res: NextResponse) {
   return res;
 }
 
+// Simple cookie presence check (no dependency on next/headers cookies())
+function hasCookie(req: Request, name: string) {
+  const raw = req.headers.get("cookie") || "";
+  // quick safe match: "; name=" or beginning "name="
+  return raw.includes(`${name}=`); 
+}
+
 /** --------------------------
  * Main GET Route
  * -------------------------- */
 
 export async function GET(req: Request) {
-  // ✅ Redis instance for rate limiting (coherent with auth routes)
   const redis = Redis.fromEnv();
 
   const ratelimit = new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(60, "60 s"), // 60 requests per minute per IP
+    limiter: Ratelimit.slidingWindow(60, "60 s"),
     analytics: false,
     prefix: "emn:ent:rl",
   });
@@ -68,12 +76,19 @@ export async function GET(req: Request) {
     return applyNoStoreHeaders(res);
   }
 
-  /**
-   * ✅ Coherence: getEntitlementFromRequest now looks up the Redis session
-   * via the session ID cookie (emn_sid) to determine the customer's Stripe state.
-   */
+  // ✅ Hard signal for the confirm-page probe
+  const cookie_present = hasCookie(req, SESSION_ID_COOKIE_NAME);
+
   const ent = await getEntitlementFromRequest(req);
   const nowSec = Math.floor(Date.now() / 1000);
+
+  // ✅ Try to infer whether entitlement actually resolved a session/customer.
+  // Adjust these checks to whatever your ent object exposes reliably.
+  const stripeCustomerId =
+    typeof (ent as any)?.stripeCustomerId === "string" ? (ent as any).stripeCustomerId : null;
+
+  const hasSession =
+    cookie_present && !!stripeCustomerId; // strongest stable signal: cookie arrived AND entitlement resolved customer
 
   // Extract subscription state from entitlement payload
   const cancelAtPeriodEnd =
@@ -84,11 +99,6 @@ export async function GET(req: Request) {
 
   const cancelAt = typeof (ent as any)?.cancelAt === "number" ? (ent as any).cancelAt : null;
 
-  /**
-   * ✅ Logic: Handle "Cancelling" state.
-   * If they are active but scheduled to end, we map the reason so the UI
-   * can show "Cancelled (ends on [Date])" instead of just "Active".
-   */
   const isCancelling = cancelAtPeriodEnd === true || (typeof cancelAt === "number" && cancelAt > nowSec);
 
   const mappedReason =
@@ -96,17 +106,22 @@ export async function GET(req: Request) {
 
   const res = NextResponse.json({
     ok: true,
+
+    // ✅ cookie probe fields (used by /auth/confirm)
+    cookie_present,
+    hasSession,
+    stripeCustomerId, // optional but very helpful for debugging (safe to return)
+
+    // existing fields
     canExplain: ent.canExplain,
     reason: mappedReason,
     trialEndsAt: ent.trialEndsAt ?? null,
 
-    // ✅ Metadata for UI billing management
     cancelAtPeriodEnd,
     currentPeriodEnd,
     cancelAt,
 
     activeSubscriptionId: (ent as any)?.activeSubscriptionId ?? null,
-    // Coherence with legacy UI field names if necessary
     chosenSubscriptionId: (ent as any)?.activeSubscriptionId ?? null,
   });
 

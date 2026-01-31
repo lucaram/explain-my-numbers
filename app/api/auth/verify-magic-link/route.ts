@@ -77,7 +77,33 @@ function getRequestCountry(req: Request): string {
 }
 
 const EU_COUNTRIES = new Set([
-  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+  "AT",
+  "BE",
+  "BG",
+  "HR",
+  "CY",
+  "CZ",
+  "DK",
+  "EE",
+  "FI",
+  "FR",
+  "DE",
+  "GR",
+  "HU",
+  "IE",
+  "IT",
+  "LV",
+  "LT",
+  "LU",
+  "MT",
+  "NL",
+  "PL",
+  "PT",
+  "RO",
+  "SK",
+  "SI",
+  "ES",
+  "SE",
 ]);
 
 function pickMonthlyPriceIdForCountry(country: string) {
@@ -140,6 +166,12 @@ function redirectNoStore(url: string, init?: Parameters<typeof NextResponse.redi
   return res;
 }
 
+function jsonNoStore(body: any, init?: Parameters<typeof NextResponse.json>[1]) {
+  const res = NextResponse.json(body, init as any);
+  applyNoStore(res);
+  return res;
+}
+
 async function getBestSubForCustomer(stripe: Stripe, customerId: string) {
   const subs = await stripe.subscriptions.list({
     customer: customerId,
@@ -187,49 +219,96 @@ async function hasBlockingPaidSubscription(stripe: Stripe, customerId: string) {
   });
 }
 
-/** --------------------------
- * Main GET Route
- * -------------------------- */
+/**
+ * ✅ UPDATED for Mobile Compatibility:
+ * Removed domain-scoping to ensure cookies work in restricted iOS/Android webviews.
+ * IMPORTANT: Cookies must be set inside the SAME browser context that will use them.
+ */
+function setSessionIdCookie(res: NextResponse, sid: string, devMode: boolean, trialEndsAt?: number | null) {
+  const baseOptions = {
+    httpOnly: true,
+    secure: !devMode,
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: SESSION_TTL_SECONDS,
+  };
 
-export async function GET(req: Request) {
+  // Set new session ID
+  res.cookies.set({
+    ...baseOptions,
+    name: SESSION_ID_COOKIE_NAME,
+    value: sid,
+  });
+
+  // Clear legacy session
+  res.cookies.set({
+    ...baseOptions,
+    name: SESSION_COOKIE_NAME,
+    value: "",
+    maxAge: 0,
+  });
+
+  // Sync the trial chip cookie for UI
+  if (typeof trialEndsAt === "number") {
+    res.cookies.set({
+      ...baseOptions,
+      name: "emn_trial_ends",
+      value: String(trialEndsAt),
+      httpOnly: false, // frontend reads this
+    });
+  }
+}
+
+/** --------------------------
+ * Primary POST Route (cookie-safe)
+ * - Called from /auth/confirm page using fetch(..., { credentials: "include" })
+ * - Sets cookies in the CURRENT browser context
+ * - Returns JSON { ok, redirectTo }
+ * -------------------------- */
+export async function POST(req: Request) {
   const { MAGIC_LINK_SECRET, STRIPE_SECRET_KEY, APP_ORIGINS, NODE_ENV } = process.env;
 
   const origin = getCanonicalOrigin(req, APP_ORIGINS || "");
   const isDev = NODE_ENV === "development";
-  const url = new URL(req.url);
-
-  if (isDev && url.origin.includes("127.0.0.1")) {
-    return redirectNoStore(`http://localhost:3000${url.pathname}${url.search}`);
-  }
 
   const redis = Redis.fromEnv();
   const stripe = new Stripe(String(STRIPE_SECRET_KEY ?? "").trim());
 
   try {
-    const token = url.searchParams.get("token") || "";
-    const secret = String(MAGIC_LINK_SECRET ?? "").trim();
-    if (!secret) return redirectNoStore(`${origin}/?magic=error&reason=missing_secret`);
+    const body = (await req.json().catch(() => null)) as { token?: string } | null;
+    const token = String(body?.token ?? "");
 
+    const secret = String(MAGIC_LINK_SECRET ?? "").trim();
+    if (!secret) {
+      return jsonNoStore({ ok: false, reason: "missing_secret" }, { status: 500 });
+    }
+
+    // Rate limit
     const ratelimit = new Ratelimit({
       redis,
       limiter: Ratelimit.slidingWindow(20, "5 m"),
       prefix: "emn:auth:verify",
     });
     const rl = await ratelimit.limit(getClientIp(req));
-    if (!rl.success) return redirectNoStore(`${origin}/?magic=error&reason=rate_limited`);
+    if (!rl.success) {
+      return jsonNoStore({ ok: false, reason: "rate_limited" }, { status: 429 });
+    }
 
     const payload = verifySignedToken(token, secret);
     const nowSec = Math.floor(Date.now() / 1000);
 
     if (!payload || payload.exp < nowSec || payload.typ !== "magic_link") {
-      return redirectNoStore(`${origin}/?magic=error&reason=invalid_token`);
+      return jsonNoStore({ ok: false, reason: "invalid_token" }, { status: 400 });
     }
 
     const intent = normalizeIntent(payload.intent);
 
+    // Nonce replay protection
     const nonceKey = `emn:magic:nonce:${payload.nonce}`;
     const used = await redis.get(nonceKey);
-    if (used) return redirectNoStore(`${origin}/?magic=error&reason=link_used`);
+    if (used) {
+      return jsonNoStore({ ok: false, reason: "link_used" }, { status: 400 });
+    }
     await redis.set(nonceKey, "1", { ex: MAGIC_NONCE_TTL_SECONDS });
 
     const sid = createSessionId();
@@ -243,7 +322,7 @@ export async function GET(req: Request) {
     };
 
     if (!baseSession.email || !baseSession.email.includes("@") || !baseSession.stripeCustomerId.startsWith("cus_")) {
-      return redirectNoStore(`${origin}/?magic=error&reason=invalid_payload`);
+      return jsonNoStore({ ok: false, reason: "invalid_payload" }, { status: 400 });
     }
 
     const country = getRequestCountry(req);
@@ -254,6 +333,7 @@ export async function GET(req: Request) {
      */
     if (intent === "login") {
       let session: SessionPayload = { ...baseSession };
+
       try {
         const best = await getBestSubForCustomer(stripe, baseSession.stripeCustomerId);
         if (best && best.status === "trialing" && typeof best.trial_end === "number") {
@@ -261,8 +341,16 @@ export async function GET(req: Request) {
         }
       } catch {}
 
-      const res = redirectNoStore(`${origin}/auth/confirm?magic=success&intent=login`);
       await writeSession(redis, session);
+
+      const res = jsonNoStore(
+        {
+          ok: true,
+          redirectTo: `${origin}/?magic=success&intent=login`,
+        },
+        { status: 200 }
+      );
+
       setSessionIdCookie(res, session.sid, isDev, session.trialEndsAt);
       return res;
     }
@@ -274,15 +362,23 @@ export async function GET(req: Request) {
       const customer = (await stripe.customers.retrieve(baseSession.stripeCustomerId)) as Stripe.Customer;
 
       if ((customer as any)?.deleted) {
-        return redirectNoStore(`${origin}/?magic=error&reason=no_customer`);
+        return jsonNoStore({ ok: false, reason: "no_customer" }, { status: 400 });
       }
 
       const md = (customer.metadata ?? {}) as Record<string, string | undefined>;
       const blockingPaid = await hasBlockingPaidSubscription(stripe, baseSession.stripeCustomerId);
 
       if (blockingPaid || md.emn_trial_used === "1") {
-        const res = redirectNoStore(`${origin}/auth/confirm?magic=ok&intent=subscribe_required`);
         await writeSession(redis, baseSession);
+
+        const res = jsonNoStore(
+          {
+            ok: true,
+            redirectTo: `${origin}/?magic=ok&intent=subscribe_required`,
+          },
+          { status: 200 }
+        );
+
         setSessionIdCookie(res, baseSession.sid, isDev);
         return res;
       }
@@ -316,8 +412,16 @@ export async function GET(req: Request) {
         trialSubscriptionId: sub.id,
       };
 
-      const res = redirectNoStore(`${origin}/auth/confirm?magic=success&intent=trial`);
       await writeSession(redis, sessionWithTrial);
+
+      const res = jsonNoStore(
+        {
+          ok: true,
+          redirectTo: `${origin}/?magic=success&intent=trial`,
+        },
+        { status: 200 }
+      );
+
       setSessionIdCookie(res, sessionWithTrial.sid, isDev, sub.trial_end);
       return res;
     }
@@ -333,8 +437,16 @@ export async function GET(req: Request) {
         return_url: `${origin}/?portal=return`,
       });
 
-      const res = redirectNoStore(portal.url, { status: 303 });
       await writeSession(redis, baseSession);
+
+      const res = jsonNoStore(
+        {
+          ok: true,
+          redirectTo: portal.url,
+        },
+        { status: 200 }
+      );
+
       setSessionIdCookie(res, baseSession.sid, isDev);
       return res;
     }
@@ -353,50 +465,45 @@ export async function GET(req: Request) {
       },
     });
 
-    const res = redirectNoStore(checkout.url!, { status: 303 });
     await writeSession(redis, baseSession);
+
+    const res = jsonNoStore(
+      {
+        ok: true,
+        redirectTo: checkout.url,
+      },
+      { status: 200 }
+    );
+
     setSessionIdCookie(res, baseSession.sid, isDev);
     return res;
   } catch (e) {
     console.error("VERIFY_ERROR:", e);
-    return redirectNoStore(`${origin}/?magic=error&reason=server`);
+    return jsonNoStore({ ok: false, reason: "server" }, { status: 500 });
   }
 }
 
-/** * ✅ UPDATED for Mobile Compatibility: 
- * Removed domain-scoping to ensure cookies work in restricted iOS/Android Webviews.
- */
-function setSessionIdCookie(res: NextResponse, sid: string, devMode: boolean, trialEndsAt?: number | null) {
-  const baseOptions = {
-    httpOnly: true,
-    secure: !devMode,
-    sameSite: "lax" as const,
-    path: "/",
-    maxAge: SESSION_TTL_SECONDS,
-  };
+/** --------------------------
+ * Compatibility GET Route
+ * - Old links that hit /api/auth/verify-magic-link?token=...
+ * - Forward to /auth/confirm?token=...
+ * -------------------------- */
+export async function GET(req: Request) {
+  const { APP_ORIGINS, NODE_ENV } = process.env;
 
-  // Set new session ID
-  res.cookies.set({
-    ...baseOptions,
-    name: SESSION_ID_COOKIE_NAME,
-    value: sid,
-  });
+  const origin = getCanonicalOrigin(req, APP_ORIGINS || "");
+  const isDev = NODE_ENV === "development";
+  const url = new URL(req.url);
 
-  // Clear legacy session
-  res.cookies.set({
-    ...baseOptions,
-    name: SESSION_COOKIE_NAME,
-    value: "",
-    maxAge: 0,
-  });
-
-  // ✅ Always sync the trial chip cookie here to prevent UI flicker
-  if (typeof trialEndsAt === "number") {
-    res.cookies.set({
-      ...baseOptions,
-      name: "emn_trial_ends",
-      value: String(trialEndsAt),
-      httpOnly: false, // Frontend needs to read this
-    });
+  // Keep your dev redirect safety
+  if (isDev && url.origin.includes("127.0.0.1")) {
+    return redirectNoStore(`http://localhost:3000${url.pathname}${url.search}`);
   }
+
+  const token = url.searchParams.get("token") || "";
+
+  // ✅ Important: do NOT set cookies here anymore — the in-app browser may isolate them.
+  // Instead, route the user to the confirm page, which will POST and set cookies
+  // in the current browser context.
+  return redirectNoStore(`${origin}/auth/confirm?token=${encodeURIComponent(token)}`);
 }
