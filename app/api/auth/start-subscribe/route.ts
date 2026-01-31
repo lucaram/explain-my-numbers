@@ -236,7 +236,8 @@ export async function POST(req: Request) {
     );
 
     const origin = getCanonicalOriginForEmail(req, APP_ORIGINS);
-    const verifyUrl = `${origin}/api/auth/verify-magic-link?token=${encodeURIComponent(token)}`;
+    const verifyUrl = `${origin}/auth/confirm?token=${encodeURIComponent(token)}`;
+
 
     // 4) Email the link
     await sendMagicLinkEmail({
