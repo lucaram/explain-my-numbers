@@ -261,7 +261,7 @@ export async function GET(req: Request) {
         }
       } catch {}
 
-      const res = redirectNoStore(`${origin}/?magic=success&intent=login&sid_set=1`);
+      const res = redirectNoStore(`${origin}/auth/confirm?magic=success&intent=login`);
       await writeSession(redis, session);
       setSessionIdCookie(res, session.sid, isDev, session.trialEndsAt);
       return res;
@@ -281,7 +281,7 @@ export async function GET(req: Request) {
       const blockingPaid = await hasBlockingPaidSubscription(stripe, baseSession.stripeCustomerId);
 
       if (blockingPaid || md.emn_trial_used === "1") {
-        const res = redirectNoStore(`${origin}/?magic=ok&intent=subscribe_required&sid_set=1`);
+        const res = redirectNoStore(`${origin}/auth/confirm?magic=ok&intent=subscribe_required`);
         await writeSession(redis, baseSession);
         setSessionIdCookie(res, baseSession.sid, isDev);
         return res;
@@ -316,7 +316,7 @@ export async function GET(req: Request) {
         trialSubscriptionId: sub.id,
       };
 
-      const res = redirectNoStore(`${origin}/?magic=success&intent=trial&sid_set=1`);
+      const res = redirectNoStore(`${origin}/auth/confirm?magic=success&intent=trial`);
       await writeSession(redis, sessionWithTrial);
       setSessionIdCookie(res, sessionWithTrial.sid, isDev, sub.trial_end);
       return res;
