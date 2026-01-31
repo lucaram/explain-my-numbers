@@ -1,3 +1,4 @@
+// src/app/api/auth/verify-magic-link/route.ts
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { Redis } from "@upstash/redis";
@@ -165,6 +166,20 @@ async function writeSession(redis: Redis, session: SessionPayload) {
   await redis.set(sessionKey(session.sid), session, { ex: SESSION_TTL_SECONDS });
 }
 
+/** ✅ NEW: no-store headers helper (for Android/Chrome redirect caching quirks) */
+function applyNoStore(res: NextResponse) {
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+}
+
+/** ✅ NEW: redirect helper that always applies no-store */
+function redirectNoStore(url: string, init?: Parameters<typeof NextResponse.redirect>[1]) {
+  const res = NextResponse.redirect(url, init as any);
+  applyNoStore(res);
+  return res;
+}
+
 /**
  * Subscription Lookups
  */
@@ -228,7 +243,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
 
   if (isDev && url.origin.includes("127.0.0.1")) {
-    return NextResponse.redirect(`http://localhost:3000${url.pathname}${url.search}`);
+    return redirectNoStore(`http://localhost:3000${url.pathname}${url.search}`);
   }
 
   const redis = Redis.fromEnv();
@@ -237,7 +252,7 @@ export async function GET(req: Request) {
   try {
     const token = url.searchParams.get("token") || "";
     const secret = String(MAGIC_LINK_SECRET ?? "").trim();
-    if (!secret) return NextResponse.redirect(`${origin}/?magic=error&reason=missing_secret`);
+    if (!secret) return redirectNoStore(`${origin}/?magic=error&reason=missing_secret`);
 
     // 1) Rate Limit
     const ratelimit = new Ratelimit({
@@ -246,14 +261,14 @@ export async function GET(req: Request) {
       prefix: "emn:auth:verify",
     });
     const rl = await ratelimit.limit(getClientIp(req));
-    if (!rl.success) return NextResponse.redirect(`${origin}/?magic=error&reason=rate_limited`);
+    if (!rl.success) return redirectNoStore(`${origin}/?magic=error&reason=rate_limited`);
 
     // 2) Verify Token
     const payload = verifySignedToken(token, secret);
     const nowSec = Math.floor(Date.now() / 1000);
 
     if (!payload || payload.exp < nowSec || payload.typ !== "magic_link") {
-      return NextResponse.redirect(`${origin}/?magic=error&reason=invalid_token`);
+      return redirectNoStore(`${origin}/?magic=error&reason=invalid_token`);
     }
 
     const intent = normalizeIntent(payload.intent);
@@ -261,7 +276,7 @@ export async function GET(req: Request) {
     // 3) Nonce (One-time use)
     const nonceKey = `emn:magic:nonce:${payload.nonce}`;
     const used = await redis.get(nonceKey);
-    if (used) return NextResponse.redirect(`${origin}/?magic=error&reason=link_used`);
+    if (used) return redirectNoStore(`${origin}/?magic=error&reason=link_used`);
     await redis.set(nonceKey, "1", { ex: MAGIC_NONCE_TTL_SECONDS });
 
     const sid = createSessionId();
@@ -275,7 +290,7 @@ export async function GET(req: Request) {
     };
 
     if (!baseSession.email || !baseSession.email.includes("@") || !baseSession.stripeCustomerId.startsWith("cus_")) {
-      return NextResponse.redirect(`${origin}/?magic=error&reason=invalid_payload`);
+      return redirectNoStore(`${origin}/?magic=error&reason=invalid_payload`);
     }
 
     const country = getRequestCountry(req);
@@ -293,7 +308,9 @@ export async function GET(req: Request) {
         }
       } catch {}
 
-      const res = NextResponse.redirect(`${origin}/?magic=success&intent=login`);
+      const res = NextResponse.redirect(`${origin}/?magic=success&intent=login&sid_set=1`);
+      applyNoStore(res);
+
       await writeSession(redis, session);
       setSessionIdCookie(res, session.sid, isDev, cookieDomain);
 
@@ -319,34 +336,43 @@ export async function GET(req: Request) {
       const customer = (await stripe.customers.retrieve(baseSession.stripeCustomerId)) as Stripe.Customer;
 
       if ((customer as any)?.deleted) {
-        return NextResponse.redirect(`${origin}/?magic=error&reason=no_customer`);
+        return redirectNoStore(`${origin}/?magic=error&reason=no_customer`);
       }
 
       const md = (customer.metadata ?? {}) as Record<string, string | undefined>;
       const blockingPaid = await hasBlockingPaidSubscription(stripe, baseSession.stripeCustomerId);
-      
+
       if (blockingPaid || md.emn_trial_used === "1") {
-        const res = NextResponse.redirect(`${origin}/?magic=ok&intent=subscribe_required`);
+        const res = NextResponse.redirect(`${origin}/?magic=ok&intent=subscribe_required&sid_set=1`);
+        applyNoStore(res);
+
         await writeSession(redis, baseSession);
         setSessionIdCookie(res, baseSession.sid, isDev, cookieDomain);
         return res;
       }
 
-      const sub = await stripe.subscriptions.create({
-        customer: baseSession.stripeCustomerId,
-        items: [{ price: priceId, quantity: 1 }],
-        trial_period_days: TRIAL_DAYS,
-        cancel_at_period_end: true,
-        metadata: {
-          product: "explain_my_numbers",
-          created_by: "verify_magic_link_trial",
-          email: baseSession.email,
+      const sub = await stripe.subscriptions.create(
+        {
+          customer: baseSession.stripeCustomerId,
+          items: [{ price: priceId, quantity: 1 }],
+          trial_period_days: TRIAL_DAYS,
+          cancel_at_period_end: true,
+          metadata: {
+            product: "explain_my_numbers",
+            created_by: "verify_magic_link_trial",
+            email: baseSession.email,
+          },
         },
-      }, { idempotencyKey: `sub_${payload.nonce}` });
+        { idempotencyKey: `sub_${payload.nonce}` }
+      );
 
-      await stripe.customers.update(baseSession.stripeCustomerId, {
-        metadata: { ...md, emn_trial_used: "1", emn_trial_used_at: String(nowSec) }
-      }, { idempotencyKey: `cust_${payload.nonce}` });
+      await stripe.customers.update(
+        baseSession.stripeCustomerId,
+        {
+          metadata: { ...md, emn_trial_used: "1", emn_trial_used_at: String(nowSec) },
+        },
+        { idempotencyKey: `cust_${payload.nonce}` }
+      );
 
       const sessionWithTrial: SessionPayload = {
         ...baseSession,
@@ -354,7 +380,9 @@ export async function GET(req: Request) {
         trialSubscriptionId: sub.id,
       };
 
-      const res = NextResponse.redirect(`${origin}/?magic=success&intent=trial`);
+      const res = NextResponse.redirect(`${origin}/?magic=success&intent=trial&sid_set=1`);
+      applyNoStore(res);
+
       await writeSession(redis, sessionWithTrial);
       setSessionIdCookie(res, sessionWithTrial.sid, isDev, cookieDomain);
 
@@ -384,6 +412,8 @@ export async function GET(req: Request) {
       });
 
       const res = NextResponse.redirect(portal.url, { status: 303 });
+      applyNoStore(res);
+
       await writeSession(redis, baseSession);
       setSessionIdCookie(res, baseSession.sid, isDev, cookieDomain);
       return res;
@@ -404,13 +434,14 @@ export async function GET(req: Request) {
     });
 
     const res = NextResponse.redirect(checkout.url!, { status: 303 });
+    applyNoStore(res);
+
     await writeSession(redis, baseSession);
     setSessionIdCookie(res, baseSession.sid, isDev, cookieDomain);
     return res;
-
   } catch (e) {
     console.error("VERIFY_ERROR:", e);
-    return NextResponse.redirect(`${origin}/?magic=error&reason=server`);
+    return redirectNoStore(`${origin}/?magic=error&reason=server`);
   }
 }
 
