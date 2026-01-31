@@ -36,6 +36,13 @@ function getClientIp(req: Request) {
   return `unknown:${key}`;
 }
 
+function applyNoStoreHeaders(res: NextResponse) {
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
+
 /** --------------------------
  * Main GET Route
  * -------------------------- */
@@ -43,7 +50,7 @@ function getClientIp(req: Request) {
 export async function GET(req: Request) {
   // ✅ Redis instance for rate limiting (coherent with auth routes)
   const redis = Redis.fromEnv();
-  
+
   const ratelimit = new Ratelimit({
     redis,
     limiter: Ratelimit.slidingWindow(60, "60 s"), // 60 requests per minute per IP
@@ -54,14 +61,15 @@ export async function GET(req: Request) {
   const ip = getClientIp(req);
   const rl = await ratelimit.limit(`ip:${ip}`);
   if (!rl.success) {
-    return NextResponse.json(
+    const res = NextResponse.json(
       { ok: false, error: "Too many requests. Please try again soon.", error_code: "RATE_LIMITED" },
       { status: 429, headers: { "Retry-After": "60" } }
     );
+    return applyNoStoreHeaders(res);
   }
 
   /**
-   * ✅ Coherence: getEntitlementFromRequest now looks up the Redis session 
+   * ✅ Coherence: getEntitlementFromRequest now looks up the Redis session
    * via the session ID cookie (emn_sid) to determine the customer's Stripe state.
    */
   const ent = await getEntitlementFromRequest(req);
@@ -78,16 +86,15 @@ export async function GET(req: Request) {
 
   /**
    * ✅ Logic: Handle "Cancelling" state.
-   * If they are active but scheduled to end, we map the reason so the UI 
+   * If they are active but scheduled to end, we map the reason so the UI
    * can show "Cancelled (ends on [Date])" instead of just "Active".
    */
-  const isCancelling =
-    cancelAtPeriodEnd === true || (typeof cancelAt === "number" && cancelAt > nowSec);
+  const isCancelling = cancelAtPeriodEnd === true || (typeof cancelAt === "number" && cancelAt > nowSec);
 
   const mappedReason =
     ent.reason === "subscription_active" && isCancelling ? "subscription_cancelled" : ent.reason;
 
-  return NextResponse.json({
+  const res = NextResponse.json({
     ok: true,
     canExplain: ent.canExplain,
     reason: mappedReason,
@@ -102,4 +109,6 @@ export async function GET(req: Request) {
     // Coherence with legacy UI field names if necessary
     chosenSubscriptionId: (ent as any)?.activeSubscriptionId ?? null,
   });
+
+  return applyNoStoreHeaders(res);
 }

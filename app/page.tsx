@@ -1907,66 +1907,74 @@ useEffect(() => {
   const magic = url.searchParams.get("magic"); // ok | error
   const reason = url.searchParams.get("reason") ?? "unknown";
 
-  // Backends may use either of these (you now use subscribe=success|cancel)
   const billingParam = url.searchParams.get("billing"); // success | cancel
   const subscribeParam = url.searchParams.get("subscribe"); // success | cancel
 
-
-
-  // Your verify-magic-link redirects to /?magic=ok&intent=trial or intent=subscribe_required
   const intent = url.searchParams.get("intent"); // trial | subscribe_required | (etc)
-
   const checkoutStatus = subscribeParam || billingParam; // normalize
 
+  // ✅ helper: retry once if missing_session (webview cookie timing)
+  const refreshBillingWithOneRetry = async () => {
+    const r1 = await refreshBillingStatus();
+    if (r1 !== "missing_session") return r1;
 
-  
+    // small delay (cookie write + redirect timing)
+    await new Promise((r) => setTimeout(r, 500));
+
+    const r2 = await refreshBillingStatus();
+    if (r2 === "missing_session") {
+      // ✅ Recovery UX (minimal): show a clear note and open your magic modal again
+      setMagicNote("Login didn’t complete (in-app browser blocked cookies). Open in your browser or resend the link.");
+      setMagicOpen(true); // shows your modal where they can resend
+    }
+    return r2;
+  };
+
   // ✅ Checkout result (subscription)
-// ✅ Checkout result (subscription)
-if (checkoutStatus === "success") {
-  setPaywall(null);
-  setMagicNote("");
-  setMagicOpen(false);
+  if (checkoutStatus === "success") {
+    setPaywall(null);
+    setMagicNote("");
+    setMagicOpen(false);
 
-  // ✅ NEW: refresh billing immediately so chip updates now
-  refreshBillingStatus().catch(() => {});
+    refreshBillingWithOneRetry().catch(() => {});
 
-  setExplainBlockReason(tUI(uiLang, "SUBSCRIPTION_ACTIVE_CONTINUE"));
-  window.setTimeout(() => setExplainBlockReason(""), 2200);
-}
- else if (checkoutStatus === "cancel") {
+    setExplainBlockReason(tUI(uiLang, "SUBSCRIPTION_ACTIVE_CONTINUE"));
+    window.setTimeout(() => setExplainBlockReason(""), 2200);
+  } else if (checkoutStatus === "cancel") {
     setExplainBlockReason(tUI(uiLang, "CHECKOUT_CANCELLED"));
     window.setTimeout(() => setExplainBlockReason(""), 1800);
   }
 
   // ✅ Magic link results
   if (magic === "ok") {
-    // If they tried to start another trial, tell them nicely what to do next
     if (intent === "subscribe_required") {
       setMagicNote(t(uiLang, "FREE_TRIAL_USED_NOTE"));
       setMagicOpen(false);
       setExplainBlockReason(t(uiLang, "FREE_TRIAL_USED_BLOCK"));
       window.setTimeout(() => setExplainBlockReason(""), 2600);
-   } else if (intent === "trial") {
-  setMagicNote(t(uiLang, "TRIAL_STARTED"));
-  setMagicOpen(false);
+    } else if (intent === "trial") {
+      setMagicNote(t(uiLang, "TRIAL_STARTED"));
+      setMagicOpen(false);
 
-  // ✅ NEW: refresh billing immediately so chip shows trial_active + days left
-  refreshBillingStatus().catch(() => {});
+      refreshBillingWithOneRetry().catch(() => {});
 
-  window.setTimeout(() => setMagicNote(""), 2200);
-}
- else {
+      window.setTimeout(() => setMagicNote(""), 2200);
+    } else {
       setMagicNote("Signed in. You can continue.");
       setMagicOpen(false);
+
+      // still refresh + retry once
+      refreshBillingWithOneRetry().catch(() => {});
+
       window.setTimeout(() => setMagicNote(""), 2200);
     }
   } else if (magic === "error") {
     setMagicNote(`Magic link failed (${reason}). Try requesting a new one.`);
+    setMagicOpen(true); // let them resend quickly
   }
 
   // ✅ Keep URL clean (no reload)
-  const shouldClean =
-    !!magic || !!reason || !!billingParam || !!subscribeParam || !!intent;
+  const shouldClean = !!magic || !!reason || !!billingParam || !!subscribeParam || !!intent;
 
   if (shouldClean) {
     url.searchParams.delete("magic");
@@ -1977,6 +1985,7 @@ if (checkoutStatus === "success") {
     window.history.replaceState({}, "", url.toString());
   }
 }, []);
+
 
 
   const getGateToken = async (forceRefresh = false): Promise<string> => {
@@ -2240,18 +2249,20 @@ async function goSubscribeDirect() {
 
 
 
-async function refreshBillingStatus() {
+async function refreshBillingStatus(): Promise<string | null> {
   try {
-    const r = await fetch("/api/billing/status", { method: "GET", cache: "no-store",credentials: "include" });
-    const j = (await r.json().catch(() => null)) as any;
+    const r = await fetch("/api/billing/status", {
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+    });
 
-    if (!j?.ok) return;
+    const j = (await r.json().catch(() => null)) as any;
+    if (!j?.ok) return null;
 
     const baseReason = normalizeBillingReason(j.reason);
 
-    // ✅ Frontend safeguard:
-    // If Stripe/backend says "subscription_active" but cancelAtPeriodEnd is true,
-    // show the "cancelling" UI state.
+    // ✅ Frontend safeguard
     const derivedReason: BillingStatus["reason"] =
       baseReason === "subscription_active" && j.cancelAtPeriodEnd === true
         ? "subscription_cancelled"
@@ -2260,16 +2271,15 @@ async function refreshBillingStatus() {
     setBilling({
       canExplain: !!j.canExplain,
       reason: derivedReason,
-
       trialEndsAt: typeof j.trialEndsAt === "number" ? j.trialEndsAt : null,
-
-      // ✅ extra fields for UI (“Cancelling · access until …”)
       cancelAtPeriodEnd: typeof j.cancelAtPeriodEnd === "boolean" ? j.cancelAtPeriodEnd : null,
       currentPeriodEnd: typeof j.currentPeriodEnd === "number" ? j.currentPeriodEnd : null,
       activeSubscriptionId: typeof j.activeSubscriptionId === "string" ? j.activeSubscriptionId : null,
     });
+
+    return derivedReason;
   } catch {
-    // silent
+    return null;
   }
 }
 
@@ -2277,11 +2287,13 @@ async function refreshBillingStatus() {
 
 
 
+
 useEffect(() => {
-  refreshBillingStatus();
-  const t = setTimeout(() => refreshBillingStatus(), 350);
+  refreshBillingStatus().catch(() => {});
+  const t = setTimeout(() => refreshBillingStatus().catch(() => {}), 350);
   return () => clearTimeout(t);
 }, []);
+
 
 
 
