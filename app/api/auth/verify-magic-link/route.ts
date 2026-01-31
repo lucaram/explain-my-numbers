@@ -7,17 +7,11 @@ import { createHmac, timingSafeEqual, randomBytes } from "crypto";
 
 export const runtime = "nodejs";
 
-// ✅ New: session cookie now stores only a session id (sid)
 const SESSION_ID_COOKIE_NAME = process.env.SESSION_ID_COOKIE_NAME || "emn_sid";
-
-// (kept: your old name env may still exist elsewhere; leave it for now)
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "emn_session";
-
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 const TRIAL_DAYS = 7;
 const MAGIC_NONCE_TTL_SECONDS = 15 * 60;
-
-// ✅ Redis session key prefix
 const SESSION_KEY_PREFIX = "emn:sess:";
 
 /** --------------------------
@@ -36,7 +30,6 @@ function verifySignedToken(token: string, magicSecret: string) {
 
     const expectedSig = base64url(createHmac("sha256", magicSecret).update(body).digest());
 
-    // timingSafeEqual requires equal-length buffers
     const a = Buffer.from(sig);
     const b = Buffer.from(expectedSig);
     if (a.length !== b.length) return null;
@@ -67,44 +60,12 @@ function getCanonicalOrigin(req: Request, fallbackOrigins: string) {
   return `${proto}://${host}`.replace(/\/$/, "");
 }
 
-/**
- * ✅ Shared cookie domain helper
- */
-function getCookieDomainFromAppOrigins(appOrigins: string | undefined) {
-  const isDev = process.env.NODE_ENV === "development";
-  if (isDev) return undefined;
-
-  const first =
-    (appOrigins || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)[0] || "";
-
-  try {
-    const u = new URL(first);
-    const host = u.hostname.toLowerCase();
-
-    if (host === "localhost" || host.endsWith(".localhost")) return undefined;
-
-    const parts = host.split(".");
-    if (parts.length < 2) return undefined;
-
-    const base = host.startsWith("www.") ? host.slice(4) : host;
-    return `.${base}`;
-  } catch {
-    return undefined;
-  }
-}
-
 function getClientIp(req: Request) {
   const xf = req.headers.get("x-forwarded-for");
   if (xf) return xf.split(",")[0]?.trim() || "unknown";
   return "unknown";
 }
 
-/**
- * Country detection
- */
 function getRequestCountry(req: Request): string {
   const c1 = req.headers.get("x-vercel-ip-country");
   if (c1 && c1.trim()) return c1.trim().toUpperCase();
@@ -166,23 +127,19 @@ async function writeSession(redis: Redis, session: SessionPayload) {
   await redis.set(sessionKey(session.sid), session, { ex: SESSION_TTL_SECONDS });
 }
 
-/** ✅ NEW: no-store headers helper (for Android/Chrome redirect caching quirks) */
 function applyNoStore(res: NextResponse) {
-  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.headers.set("Pragma", "no-cache");
   res.headers.set("Expires", "0");
+  res.headers.set("Surrogate-Control", "no-store");
 }
 
-/** ✅ NEW: redirect helper that always applies no-store */
 function redirectNoStore(url: string, init?: Parameters<typeof NextResponse.redirect>[1]) {
   const res = NextResponse.redirect(url, init as any);
   applyNoStore(res);
   return res;
 }
 
-/**
- * Subscription Lookups
- */
 async function getBestSubForCustomer(stripe: Stripe, customerId: string) {
   const subs = await stripe.subscriptions.list({
     customer: customerId,
@@ -238,7 +195,6 @@ export async function GET(req: Request) {
   const { MAGIC_LINK_SECRET, STRIPE_SECRET_KEY, APP_ORIGINS, NODE_ENV } = process.env;
 
   const origin = getCanonicalOrigin(req, APP_ORIGINS || "");
-  const cookieDomain = getCookieDomainFromAppOrigins(APP_ORIGINS);
   const isDev = NODE_ENV === "development";
   const url = new URL(req.url);
 
@@ -254,7 +210,6 @@ export async function GET(req: Request) {
     const secret = String(MAGIC_LINK_SECRET ?? "").trim();
     if (!secret) return redirectNoStore(`${origin}/?magic=error&reason=missing_secret`);
 
-    // 1) Rate Limit
     const ratelimit = new Ratelimit({
       redis,
       limiter: Ratelimit.slidingWindow(20, "5 m"),
@@ -263,7 +218,6 @@ export async function GET(req: Request) {
     const rl = await ratelimit.limit(getClientIp(req));
     if (!rl.success) return redirectNoStore(`${origin}/?magic=error&reason=rate_limited`);
 
-    // 2) Verify Token
     const payload = verifySignedToken(token, secret);
     const nowSec = Math.floor(Date.now() / 1000);
 
@@ -273,7 +227,6 @@ export async function GET(req: Request) {
 
     const intent = normalizeIntent(payload.intent);
 
-    // 3) Nonce (One-time use)
     const nonceKey = `emn:magic:nonce:${payload.nonce}`;
     const used = await redis.get(nonceKey);
     if (used) return redirectNoStore(`${origin}/?magic=error&reason=link_used`);
@@ -294,7 +247,7 @@ export async function GET(req: Request) {
     }
 
     const country = getRequestCountry(req);
-    const { priceId, currency } = pickMonthlyPriceIdForCountry(country);
+    const { priceId } = pickMonthlyPriceIdForCountry(country);
 
     /**
      * ✅ INTENT: LOGIN
@@ -308,24 +261,9 @@ export async function GET(req: Request) {
         }
       } catch {}
 
-      const res = NextResponse.redirect(`${origin}/?magic=success&intent=login&sid_set=1`);
-      applyNoStore(res);
-
+      const res = redirectNoStore(`${origin}/?magic=success&intent=login&sid_set=1`);
       await writeSession(redis, session);
-      setSessionIdCookie(res, session.sid, isDev, cookieDomain);
-
-      if (typeof session.trialEndsAt === "number") {
-        res.cookies.set({
-          name: "emn_trial_ends",
-          value: String(session.trialEndsAt),
-          httpOnly: false,
-          secure: !isDev,
-          sameSite: "lax",
-          path: "/",
-          maxAge: SESSION_TTL_SECONDS,
-          ...(cookieDomain ? { domain: cookieDomain } : {}),
-        });
-      }
+      setSessionIdCookie(res, session.sid, isDev, session.trialEndsAt);
       return res;
     }
 
@@ -343,11 +281,9 @@ export async function GET(req: Request) {
       const blockingPaid = await hasBlockingPaidSubscription(stripe, baseSession.stripeCustomerId);
 
       if (blockingPaid || md.emn_trial_used === "1") {
-        const res = NextResponse.redirect(`${origin}/?magic=ok&intent=subscribe_required&sid_set=1`);
-        applyNoStore(res);
-
+        const res = redirectNoStore(`${origin}/?magic=ok&intent=subscribe_required&sid_set=1`);
         await writeSession(redis, baseSession);
-        setSessionIdCookie(res, baseSession.sid, isDev, cookieDomain);
+        setSessionIdCookie(res, baseSession.sid, isDev);
         return res;
       }
 
@@ -380,23 +316,9 @@ export async function GET(req: Request) {
         trialSubscriptionId: sub.id,
       };
 
-      const res = NextResponse.redirect(`${origin}/?magic=success&intent=trial&sid_set=1`);
-      applyNoStore(res);
-
+      const res = redirectNoStore(`${origin}/?magic=success&intent=trial&sid_set=1`);
       await writeSession(redis, sessionWithTrial);
-      setSessionIdCookie(res, sessionWithTrial.sid, isDev, cookieDomain);
-
-      res.cookies.set({
-        name: "emn_trial_ends",
-        value: String(sub.trial_end),
-        httpOnly: false,
-        secure: !isDev,
-        sameSite: "lax",
-        path: "/",
-        maxAge: SESSION_TTL_SECONDS,
-        ...(cookieDomain ? { domain: cookieDomain } : {}),
-      });
-
+      setSessionIdCookie(res, sessionWithTrial.sid, isDev, sub.trial_end);
       return res;
     }
 
@@ -411,11 +333,9 @@ export async function GET(req: Request) {
         return_url: `${origin}/?portal=return`,
       });
 
-      const res = NextResponse.redirect(portal.url, { status: 303 });
-      applyNoStore(res);
-
+      const res = redirectNoStore(portal.url, { status: 303 });
       await writeSession(redis, baseSession);
-      setSessionIdCookie(res, baseSession.sid, isDev, cookieDomain);
+      setSessionIdCookie(res, baseSession.sid, isDev);
       return res;
     }
 
@@ -433,11 +353,9 @@ export async function GET(req: Request) {
       },
     });
 
-    const res = NextResponse.redirect(checkout.url!, { status: 303 });
-    applyNoStore(res);
-
+    const res = redirectNoStore(checkout.url!, { status: 303 });
     await writeSession(redis, baseSession);
-    setSessionIdCookie(res, baseSession.sid, isDev, cookieDomain);
+    setSessionIdCookie(res, baseSession.sid, isDev);
     return res;
   } catch (e) {
     console.error("VERIFY_ERROR:", e);
@@ -445,26 +363,40 @@ export async function GET(req: Request) {
   }
 }
 
-function setSessionIdCookie(res: NextResponse, sid: string, devMode: boolean, cookieDomain?: string) {
-  res.cookies.set({
-    name: SESSION_ID_COOKIE_NAME,
-    value: sid,
+/** * ✅ UPDATED for Mobile Compatibility: 
+ * Removed domain-scoping to ensure cookies work in restricted iOS/Android Webviews.
+ */
+function setSessionIdCookie(res: NextResponse, sid: string, devMode: boolean, trialEndsAt?: number | null) {
+  const baseOptions = {
     httpOnly: true,
     secure: !devMode,
-    sameSite: "lax",
+    sameSite: "lax" as const,
     path: "/",
     maxAge: SESSION_TTL_SECONDS,
-    ...(cookieDomain ? { domain: cookieDomain } : {}),
+  };
+
+  // Set new session ID
+  res.cookies.set({
+    ...baseOptions,
+    name: SESSION_ID_COOKIE_NAME,
+    value: sid,
   });
 
+  // Clear legacy session
   res.cookies.set({
+    ...baseOptions,
     name: SESSION_COOKIE_NAME,
     value: "",
-    httpOnly: true,
-    secure: !devMode,
-    sameSite: "lax",
-    path: "/",
     maxAge: 0,
-    ...(cookieDomain ? { domain: cookieDomain } : {}),
   });
+
+  // ✅ Always sync the trial chip cookie here to prevent UI flicker
+  if (typeof trialEndsAt === "number") {
+    res.cookies.set({
+      ...baseOptions,
+      name: "emn_trial_ends",
+      value: String(trialEndsAt),
+      httpOnly: false, // Frontend needs to read this
+    });
+  }
 }
