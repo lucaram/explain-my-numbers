@@ -4662,7 +4662,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
           </div>
 
           <a
-            href="https://x.com/Luca1347803"
+            href="https://x.com/2026ExplainLtd"
             target="_blank"
             rel="noopener noreferrer"
             className={cn(
