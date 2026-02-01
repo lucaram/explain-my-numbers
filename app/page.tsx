@@ -3168,7 +3168,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
   onClick={() => {
     setMagicIntent("trial");
     setMagicOpen(true); // always open (no toggle edge cases)
-    setMagicNote("");
+    setMagicNote(t(uiLang, "MAGIC_EMAIL_HELP"));
   }}
   className={cn(
     "relative w-full sm:w-auto overflow-hidden group rounded-full",
@@ -3325,6 +3325,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                 >
                   <div className="w-full space-y-3">
   <div className="space-y-1 text-center md:text-left">
+    
   <p
     className={cn(
       "text-[10px] font-black uppercase tracking-[0.28em]",
@@ -3770,7 +3771,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
   onClick={() => {
     setMagicIntent("trial");
     setMagicOpen(true); // always open (no toggle edge cases)
-    setMagicNote("");
+    setMagicNote(t(uiLang, "MAGIC_EMAIL_HELP"));
   }}
   className={cn(
     "relative w-full sm:w-auto overflow-hidden group rounded-full",
@@ -4256,7 +4257,7 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
   onClick={() => {
     setMagicIntent("trial");
     setMagicOpen(true); // always open (no toggle edge cases)
-    setMagicNote("");
+    setMagicNote(t(uiLang, "MAGIC_EMAIL_HELP"));
   }}
   className={cn(
     "relative w-full sm:w-auto overflow-hidden group rounded-full",
