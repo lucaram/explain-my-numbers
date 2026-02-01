@@ -1756,14 +1756,8 @@ useEffect(() => {
   const charCount = text.length;
   const overLimit = charCount > MAX_INPUT_CHARS;
 const showInputUi = !paywall || paywall.reason === "demo";
-const canShowTrialCta =
-  billing?.reason === "trial_active" ||
-  billing?.reason === "missing_session" ||
-  billing?.reason === "invalid_session" ||
-  billing?.reason === "no_customer" ||
-  paywall?.reason === "missing_session" ||
-  paywall?.reason === "invalid_session" ||
-  paywall?.reason === "no_customer";
+const canShowTrialCta = true;
+
 
   const hasText = useMemo(() => text.trim().length > 0, [text]);
   const hasFile = !!selectedFile;
@@ -3169,87 +3163,88 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                 {/* ✅ Trial button ONLY when eligible/active */}
 {canShowTrialCta && (
         
-       <button
-                    type="button"
-                    onClick={() => {
-                      setMagicIntent("trial");
-                      setMagicOpen((v) => !v);
-                      setMagicNote("");
-                    }}
-                    className={cn(
-                      "relative w-full sm:w-auto overflow-hidden group rounded-full",
-                      "px-9 py-4", // ✅ match subscribe padding
-                      "min-h-[56px]", // ✅ equal height
-                      "sm:min-w-[260px]", // ✅ equal-ish desktop width
-                      "cursor-pointer",
-                      "transition-transform duration-300",
-                      "hover:scale-[1.08]",
-                      "active:scale-[0.93]",
-                      "motion-reduce:transform-none",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                      theme === "dark"
-                        ? [
-                            "bg-white/[0.04] text-white/92",
-                            "border border-white/12",
-                            "hover:bg-white/[0.06] hover:border-white/18",
-                            "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.55)]",
-                          ].join(" ")
-                        : [
-                            "bg-white text-zinc-900",
-                            "border border-zinc-200",
-                            "hover:bg-zinc-50 hover:border-zinc-300",
-                            "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.16)]",
-                          ].join(" ")
-                    )}
-                    title={P.trialTitleAttr}
-                  >
-                    {/* soft inner highlight */}
-                    <span
-                      className={cn(
-                        "pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500",
-                        theme === "dark"
-                          ? "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.18),transparent_55%)]"
-                          : "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.10),transparent_55%)]"
-                      )}
-                    />
+      <button
+  type="button"
+  onClick={() => {
+    setMagicIntent("trial");
+    setMagicOpen(true); // always open (no toggle edge cases)
+    setMagicNote("");
+  }}
+  className={cn(
+    "relative w-full sm:w-auto overflow-hidden group rounded-full",
+    "px-9 py-4", // ✅ match subscribe padding
+    "min-h-[56px]", // ✅ equal height
+    "sm:min-w-[260px]", // ✅ equal-ish desktop width
+    "cursor-pointer",
+    "transition-transform duration-300",
+    "hover:scale-[1.08]",
+    "active:scale-[0.93]",
+    "motion-reduce:transform-none",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+    theme === "dark"
+      ? [
+          "bg-white/[0.04] text-white/92",
+          "border border-white/12",
+          "hover:bg-white/[0.06] hover:border-white/18",
+          "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.55)]",
+        ].join(" ")
+      : [
+          "bg-white text-zinc-900",
+          "border border-zinc-200",
+          "hover:bg-zinc-50 hover:border-zinc-300",
+          "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.16)]",
+        ].join(" ")
+  )}
+  title={P.trialTitleAttr}
+>
+  {/* soft inner highlight */}
+  <span
+    className={cn(
+      "pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500",
+      theme === "dark"
+        ? "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.18),transparent_55%)]"
+        : "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.10),transparent_55%)]"
+    )}
+  />
 
-                    {/* very subtle sweep */}
-                    <span
-                      className={cn(
-                        "pointer-events-none absolute -inset-y-6 -left-1/2 w-1/3 rotate-12",
-                        theme === "dark"
-                          ? "bg-gradient-to-r from-transparent via-white/10 to-transparent"
-                          : "bg-gradient-to-r from-transparent via-black/10 to-transparent",
-                        "translate-x-[-120%] group-hover:translate-x-[420%]",
-                        "transition-transform duration-[1200ms] ease-out"
-                      )}
-                    />
+  {/* very subtle sweep */}
+  <span
+    className={cn(
+      "pointer-events-none absolute -inset-y-6 -left-1/2 w-1/3 rotate-12",
+      theme === "dark"
+        ? "bg-gradient-to-r from-transparent via-white/10 to-transparent"
+        : "bg-gradient-to-r from-transparent via-black/10 to-transparent",
+      "translate-x-[-120%] group-hover:translate-x-[420%]",
+      "transition-transform duration-[1200ms] ease-out"
+    )}
+  />
 
-                    <span className="relative z-10 flex flex-col items-center leading-tight">
-                      <span className="flex items-center justify-center gap-3">
-                        <span className="text-[15px] font-semibold tracking-[-0.01em]">
-                          {P.trialCta}
-                        </span>
-                        <ArrowRight
-                          size={18}
-                          className={cn(
-                            "opacity-70 group-hover:opacity-90 transition-opacity",
-                            theme === "dark" ? "text-white/70" : "text-zinc-600"
-                          )}
-                          aria-hidden="true"
-                        />
-                      </span>
+  <span className="relative z-10 flex flex-col items-center leading-tight">
+    <span className="flex items-center justify-center gap-3">
+      <span className="text-[15px] font-semibold tracking-[-0.01em]">
+        {P.trialCta}
+      </span>
+      <ArrowRight
+        size={18}
+        className={cn(
+          "opacity-70 group-hover:opacity-90 transition-opacity",
+          theme === "dark" ? "text-white/70" : "text-zinc-600"
+        )}
+        aria-hidden="true"
+      />
+    </span>
 
-                      <span
-                        className={cn(
-                          "mt-0.5 text-[13px] font-medium opacity-70 text-center",
-                          theme === "dark" ? "text-white/70" : "text-zinc-600"
-                        )}
-                      >
-                        {P.trialSub}
-                      </span>
-                    </span>
-                  </button>
+    <span
+      className={cn(
+        "mt-0.5 text-[13px] font-medium opacity-70 text-center",
+        theme === "dark" ? "text-white/70" : "text-zinc-600"
+      )}
+    >
+      {P.trialSub}
+    </span>
+  </span>
+</button>
+
                 )}
 
                 {/* ✅ Subscribe (always shown on paywall) */}
@@ -3761,86 +3756,87 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
 {canShowTrialCta && (
          
        <button
-                    type="button"
-                    onClick={() => {
-                      setMagicIntent("trial");
-                      setMagicOpen((v) => !v);
-                      setMagicNote("");
-                    }}
-                    className={cn(
-                      "relative w-full sm:w-auto overflow-hidden group rounded-full",
-                      "px-9 py-4", // ✅ match subscribe padding
-                      "min-h-[56px]", // ✅ equal height
-                      "sm:min-w-[260px]", // ✅ equal-ish desktop width
-                      "cursor-pointer",
-                      "transition-transform duration-300",
-                      "hover:scale-[1.08]",
-                      "active:scale-[0.93]",
-                      "motion-reduce:transform-none",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-                      theme === "dark"
-                        ? [
-                            "bg-white/[0.04] text-white/92",
-                            "border border-white/12",
-                            "hover:bg-white/[0.06] hover:border-white/18",
-                            "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.55)]",
-                          ].join(" ")
-                        : [
-                            "bg-white text-zinc-900",
-                            "border border-zinc-200",
-                            "hover:bg-zinc-50 hover:border-zinc-300",
-                            "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.16)]",
-                          ].join(" ")
-                    )}
-                    title={P.trialTitleAttr}
-                  >
-                    {/* soft inner highlight */}
-                    <span
-                      className={cn(
-                        "pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500",
-                        theme === "dark"
-                          ? "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.18),transparent_55%)]"
-                          : "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.10),transparent_55%)]"
-                      )}
-                    />
+  type="button"
+  onClick={() => {
+    setMagicIntent("trial");
+    setMagicOpen(true); // always open (no toggle edge cases)
+    setMagicNote("");
+  }}
+  className={cn(
+    "relative w-full sm:w-auto overflow-hidden group rounded-full",
+    "px-9 py-4", // ✅ match subscribe padding
+    "min-h-[56px]", // ✅ equal height
+    "sm:min-w-[260px]", // ✅ equal-ish desktop width
+    "cursor-pointer",
+    "transition-transform duration-300",
+    "hover:scale-[1.08]",
+    "active:scale-[0.93]",
+    "motion-reduce:transform-none",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+    theme === "dark"
+      ? [
+          "bg-white/[0.04] text-white/92",
+          "border border-white/12",
+          "hover:bg-white/[0.06] hover:border-white/18",
+          "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.55)]",
+        ].join(" ")
+      : [
+          "bg-white text-zinc-900",
+          "border border-zinc-200",
+          "hover:bg-zinc-50 hover:border-zinc-300",
+          "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.16)]",
+        ].join(" ")
+  )}
+  title={P.trialTitleAttr}
+>
+  {/* soft inner highlight */}
+  <span
+    className={cn(
+      "pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500",
+      theme === "dark"
+        ? "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.18),transparent_55%)]"
+        : "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.10),transparent_55%)]"
+    )}
+  />
 
-                    {/* very subtle sweep */}
-                    <span
-                      className={cn(
-                        "pointer-events-none absolute -inset-y-6 -left-1/2 w-1/3 rotate-12",
-                        theme === "dark"
-                          ? "bg-gradient-to-r from-transparent via-white/10 to-transparent"
-                          : "bg-gradient-to-r from-transparent via-black/10 to-transparent",
-                        "translate-x-[-120%] group-hover:translate-x-[420%]",
-                        "transition-transform duration-[1200ms] ease-out"
-                      )}
-                    />
+  {/* very subtle sweep */}
+  <span
+    className={cn(
+      "pointer-events-none absolute -inset-y-6 -left-1/2 w-1/3 rotate-12",
+      theme === "dark"
+        ? "bg-gradient-to-r from-transparent via-white/10 to-transparent"
+        : "bg-gradient-to-r from-transparent via-black/10 to-transparent",
+      "translate-x-[-120%] group-hover:translate-x-[420%]",
+      "transition-transform duration-[1200ms] ease-out"
+    )}
+  />
 
-                    <span className="relative z-10 flex flex-col items-center leading-tight">
-                      <span className="flex items-center justify-center gap-3">
-                        <span className="text-[15px] font-semibold tracking-[-0.01em]">
-                          {P.trialCta}
-                        </span>
-                        <ArrowRight
-                          size={18}
-                          className={cn(
-                            "opacity-70 group-hover:opacity-90 transition-opacity",
-                            theme === "dark" ? "text-white/70" : "text-zinc-600"
-                          )}
-                          aria-hidden="true"
-                        />
-                      </span>
+  <span className="relative z-10 flex flex-col items-center leading-tight">
+    <span className="flex items-center justify-center gap-3">
+      <span className="text-[15px] font-semibold tracking-[-0.01em]">
+        {P.trialCta}
+      </span>
+      <ArrowRight
+        size={18}
+        className={cn(
+          "opacity-70 group-hover:opacity-90 transition-opacity",
+          theme === "dark" ? "text-white/70" : "text-zinc-600"
+        )}
+        aria-hidden="true"
+      />
+    </span>
 
-                      <span
-                        className={cn(
-                          "mt-0.5 text-[13px] font-medium opacity-70 text-center",
-                          theme === "dark" ? "text-white/70" : "text-zinc-600"
-                        )}
-                      >
-                        {P.trialSub}
-                      </span>
-                    </span>
-                  </button>
+    <span
+      className={cn(
+        "mt-0.5 text-[13px] font-medium opacity-70 text-center",
+        theme === "dark" ? "text-white/70" : "text-zinc-600"
+      )}
+    >
+      {P.trialSub}
+    </span>
+  </span>
+</button>
+
                 )}
 
                 {/* ✅ Subscribe (always shown on paywall) */}
@@ -4246,102 +4242,87 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
 {canShowTrialCta && (
 
     <button
-      type="button"
-      onClick={() => {
-        setMagicIntent("trial");
-        setMagicOpen((v) => !v);
-        setMagicNote("");
-      }}
-      className={cn(
-        "relative w-full sm:w-auto overflow-hidden group rounded-full",
-        // ✅ more compact on mobile, keep desktop as-is
-        "px-6 py-3 sm:px-9 sm:py-4",
-        "min-h-[48px] sm:min-h-[56px]",
-        "sm:min-w-[260px]",
-        "cursor-pointer",
-        "transition-transform duration-300",
-        "hover:scale-[1.08]",
-        "active:scale-[0.93]",
-        "motion-reduce:transform-none",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-        theme === "dark"
-          ? [
-              "bg-white/[0.04] text-white/92",
-              "border border-white/12",
-              "hover:bg-white/[0.06] hover:border-white/18",
-              "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.55)]",
-            ].join(" ")
-          : [
-              "bg-white text-zinc-900",
-              "border border-zinc-200",
-              "hover:bg-zinc-50 hover:border-zinc-300",
-              "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.16)]",
-            ].join(" ")
-      )}
-      title={P.trialTitleAttr}
-    >
-      {/* soft inner highlight */}
-      <span
-        className={cn(
-          "pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500",
-          theme === "dark"
-            ? "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.18),transparent_55%)]"
-            : "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.10),transparent_55%)]"
-        )}
-      />
+  type="button"
+  onClick={() => {
+    setMagicIntent("trial");
+    setMagicOpen(true); // always open (no toggle edge cases)
+    setMagicNote("");
+  }}
+  className={cn(
+    "relative w-full sm:w-auto overflow-hidden group rounded-full",
+    "px-9 py-4", // ✅ match subscribe padding
+    "min-h-[56px]", // ✅ equal height
+    "sm:min-w-[260px]", // ✅ equal-ish desktop width
+    "cursor-pointer",
+    "transition-transform duration-300",
+    "hover:scale-[1.08]",
+    "active:scale-[0.93]",
+    "motion-reduce:transform-none",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
+    theme === "dark"
+      ? [
+          "bg-white/[0.04] text-white/92",
+          "border border-white/12",
+          "hover:bg-white/[0.06] hover:border-white/18",
+          "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.55)]",
+        ].join(" ")
+      : [
+          "bg-white text-zinc-900",
+          "border border-zinc-200",
+          "hover:bg-zinc-50 hover:border-zinc-300",
+          "shadow-[0_18px_50px_-18px_rgba(0,0,0,0.16)]",
+        ].join(" ")
+  )}
+  title={P.trialTitleAttr}
+>
+  {/* soft inner highlight */}
+  <span
+    className={cn(
+      "pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500",
+      theme === "dark"
+        ? "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.18),transparent_55%)]"
+        : "bg-[radial-gradient(700px_circle_at_25%_0%,rgba(99,102,241,0.10),transparent_55%)]"
+    )}
+  />
 
-      {/* very subtle sweep */}
-      <span
-        className={cn(
-          "pointer-events-none absolute -inset-y-6 -left-1/2 w-1/3 rotate-12",
-          theme === "dark"
-            ? "bg-gradient-to-r from-transparent via-white/10 to-transparent"
-            : "bg-gradient-to-r from-transparent via-black/10 to-transparent",
-          "translate-x-[-120%] group-hover:translate-x-[420%]",
-          "transition-transform duration-[1200ms] ease-out"
-        )}
-      />
+  {/* very subtle sweep */}
+  <span
+    className={cn(
+      "pointer-events-none absolute -inset-y-6 -left-1/2 w-1/3 rotate-12",
+      theme === "dark"
+        ? "bg-gradient-to-r from-transparent via-white/10 to-transparent"
+        : "bg-gradient-to-r from-transparent via-black/10 to-transparent",
+      "translate-x-[-120%] group-hover:translate-x-[420%]",
+      "transition-transform duration-[1200ms] ease-out"
+    )}
+  />
 
-      <span className="relative z-10 flex flex-col items-center leading-tight">
-        <span className="flex items-center justify-center gap-2 sm:gap-3">
-          <span className="text-[14px] sm:text-[15px] font-semibold tracking-[-0.01em]">
-            {P.trialCta}
-          </span>
-          <ArrowRight
-            size={18}
-            className={cn(
-              "opacity-70 group-hover:opacity-90 transition-opacity",
-              theme === "dark" ? "text-white/70" : "text-zinc-600"
-            )}
-            aria-hidden="true"
-          />
-        </span>
-
-        {/* ✅ Mobile: split into 2 lines; Desktop: original single line */}
-        <span
-          className={cn(
-            "mt-0.5 text-[12px] sm:text-[13px] font-medium opacity-70 text-center",
-            theme === "dark" ? "text-white/70" : "text-zinc-600"
-          )}
-        >
-          {/* mobile */}
-          <span className="block sm:hidden">
-            {(() => {
-              const parts = P.trialSub.split("·");
-              return (
-                <>
-                  <span className="block">{parts[0]?.trim()} ·</span>
-                  {parts[1] && <span className="block">{parts[1].trim()}</span>}
-                </>
-              );
-            })()}
-          </span>
-
-          {/* desktop */}
-          <span className="hidden sm:inline">{P.trialSub}</span>
-        </span>
+  <span className="relative z-10 flex flex-col items-center leading-tight">
+    <span className="flex items-center justify-center gap-3">
+      <span className="text-[15px] font-semibold tracking-[-0.01em]">
+        {P.trialCta}
       </span>
-    </button>
+      <ArrowRight
+        size={18}
+        className={cn(
+          "opacity-70 group-hover:opacity-90 transition-opacity",
+          theme === "dark" ? "text-white/70" : "text-zinc-600"
+        )}
+        aria-hidden="true"
+      />
+    </span>
+
+    <span
+      className={cn(
+        "mt-0.5 text-[13px] font-medium opacity-70 text-center",
+        theme === "dark" ? "text-white/70" : "text-zinc-600"
+      )}
+    >
+      {P.trialSub}
+    </span>
+  </span>
+</button>
+
   )}
 
   {/* ✅ Subscribe (always shown on paywall) */}
