@@ -2329,13 +2329,14 @@ useEffect(() => {
 // ✅ Success UX 
 setMagicNote(
   magicIntent === "trial"
-    ? (body?.mode === "login"
-        ? "Magic link sent — this will log you into your existing trial."
-        : t(uiLang, "MAGIC_LINK_TRIAL_SENT"))
-    : (body?.mode === "login"
-        ? "Already subscribed — we emailed you a sign-in link. Use Manage to edit billing."
-        : t(uiLang, "MAGIC_LINK_SUBSCRIBE_SENT"))
+    ? body?.mode === "login"
+      ? t(uiLang, "MAGIC_LINK_TRIAL_LOGIN_SENT")
+      : t(uiLang, "MAGIC_LINK_TRIAL_SENT")
+    : body?.mode === "login"
+      ? t(uiLang, "MAGIC_LINK_SUBSCRIBE_LOGIN_SENT")
+      : t(uiLang, "MAGIC_LINK_SUBSCRIBE_SENT")
 );
+
 
 
   } catch (err) {
@@ -3293,14 +3294,11 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                 </button>
               </div>
 
-<p
-  className={cn(
-    "mt-4 text-center text-[12px] leading-relaxed font-medium",
-    theme === "dark" ? "text-white/55" : "text-zinc-600"
-  )}
->
-  Your access is tied to your email, not your device.{" "}
-  <span className="font-semibold">Recover anytime.</span>
+<p className={cn(
+  "mt-4 text-center text-[12px] leading-relaxed font-medium",
+  theme === "dark" ? "text-white/55" : "text-zinc-600"
+)}>
+  {t(uiLang, "ACCESS_RECOVER_NOTE")}
 </p>
 
 
