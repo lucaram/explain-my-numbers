@@ -3293,6 +3293,16 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
                 </button>
               </div>
 
+<p
+  className={cn(
+    "mt-4 text-center text-[12px] leading-relaxed font-medium",
+    theme === "dark" ? "text-white/55" : "text-zinc-600"
+  )}
+>
+  Your access is tied to your email, not your device.{" "}
+  <span className="font-semibold">Recover anytime.</span>
+</p>
+
 
             </div>
           </div>
@@ -4390,6 +4400,15 @@ Over limit {fmtN(charCount)} / {fmtN(MAX_INPUT_CHARS)}
   </button>
 </div>
 
+<p
+  className={cn(
+    "mt-4 text-center text-[12px] leading-relaxed font-medium",
+    theme === "dark" ? "text-white/55" : "text-zinc-600"
+  )}
+>
+  Your access is tied to your email, not your device.{" "}
+  <span className="font-semibold">Recover anytime.</span>
+</p>
 
             </div>
           </div>
